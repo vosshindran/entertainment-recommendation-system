@@ -78,10 +78,16 @@ app.get('/api/search', async (req, res) => {
         return res.json({ success: true, results: req.session[cacheKey].data, source: 'session_cache' });
     }
 
-    // Record search history when user is logged in
+    // Record search history when user is logged in — skip if same keyword was logged in the last minute
     if (req.session.user) {
-        db.prepare('INSERT INTO search_history (user_id, type, keyword) VALUES (?, ?, ?)')
-          .run(req.session.user.id, type, q);
+        const recent = db.prepare(
+            `SELECT id FROM search_history WHERE user_id = ? AND type = ? AND keyword = ?
+             AND searched_at > datetime('now', '-1 minute')`
+        ).get(req.session.user.id, type, q);
+        if (!recent) {
+            db.prepare('INSERT INTO search_history (user_id, type, keyword) VALUES (?, ?, ?)')
+              .run(req.session.user.id, type, q);
+        }
     }
 
     // 2. Local DB — filter by title keyword and optionally by genre/category
@@ -260,20 +266,34 @@ async function fetchFromAPI(type, query){
 
     if (type === 'music'){
         const url = `http://ws.audioscrobbler.com/2.0/?method=track.search&track=${encodeURIComponent(query)}&api_key=${process.env.LASTFM_API_KEY}&format=json`;
-        const res = await fetch(url);
+        const res  = await fetch(url);
         const data = await res.json();
-        return (data.results?.trackmatches?.track || []).slice(0, 8).map(t => ({
-            type,
-            external_id: t.mbid || `${t.artist}-${t.name}`,
-            title: `${t.artist} - ${t.name}`,
-            description: null,
-            poster_url: t.image?.[2]['#text'] || null,
-            release_year: null,
-            genre: null,
-            extra: {
-                artist: t.artist,
-                track: t.name
-            }
+        const tracks = (data.results?.trackmatches?.track || []).slice(0, 8);
+
+        // Last.fm deprecated image hosting — images are always empty strings.
+        // Fall back to iTunes Search API (free, no key needed) for album artwork.
+        return await Promise.all(tracks.map(async t => {
+            let posterUrl = null;
+            try {
+                const q = encodeURIComponent(`${t.artist} ${t.name}`);
+                const ir = await fetch(`https://itunes.apple.com/search?term=${q}&media=music&entity=musicTrack&limit=1`);
+                const id = await ir.json();
+                const art = id.results?.[0]?.artworkUrl100;
+                if (art) posterUrl = art.replace('100x100bb', '500x500bb');
+            } catch {}
+            return {
+                type,
+                external_id: t.mbid || `${t.artist}-${t.name}`,
+                title: `${t.artist} - ${t.name}`,
+                description: null,
+                poster_url: posterUrl,
+                release_year: null,
+                genre: null,
+                extra: {
+                    artist: t.artist,
+                    track: t.name
+                }
+            };
         }));
     }
 
