@@ -300,6 +300,74 @@ async function fetchFromAPI(type, query){
     return [];
 }
 
+// ----------------- For-you recommendations route -----------------
+app.get('/api/for-you', (req, res) => {
+    if (!req.session.user){
+        return res.status(401).json({ success: false, message: 'Not logged in' });
+    }
+    const { type } = req.query;
+    const userId = req.session.user.id;
+
+    const recentSearches = db.prepare(`
+        SELECT type, keyword FROM search_history
+        WHERE user_id = ? AND (? IS NULL OR type = ?)
+        GROUP BY type, keyword
+        ORDER BY MAX(searched_at) DESC
+        LIMIT 10
+    `).all(userId, type || null, type || null);
+
+    const watchlistItems = db.prepare(`
+        SELECT e.id, e.genre FROM watchlist w
+        JOIN entertainment e ON w.entertainment_id = e.id
+        WHERE w.user_id = ? AND (? IS NULL OR e.type = ?)
+    `).all(userId, type || null, type || null);
+
+    const watchlistIds    = new Set(watchlistItems.map(i => i.id));
+    const watchlistGenres = [...new Set(watchlistItems.map(i => i.genre).filter(Boolean))];
+
+    const seen    = new Set();
+    const results = [];
+
+    const addItems = (rows) => {
+        for (const item of rows){
+            if (!seen.has(item.id) && !watchlistIds.has(item.id)){
+                seen.add(item.id);
+                results.push(item);
+            }
+        }
+    };
+
+    for (const { type: t, keyword } of recentSearches){
+        addItems(db.prepare(`
+            SELECT * FROM entertainment
+            WHERE type = ? AND LOWER(title) LIKE ?
+            LIMIT 4
+        `).all(t, `%${keyword.toLowerCase()}%`));
+    }
+
+    for (const genre of watchlistGenres.slice(0, 5)){
+        addItems(db.prepare(`
+            SELECT * FROM entertainment
+            WHERE LOWER(genre) LIKE ? AND (? IS NULL OR type = ?)
+            LIMIT 4
+        `).all(`%${genre.toLowerCase()}%`, type || null, type || null));
+    }
+
+    if (results.length < 20 && type){
+        const needed      = 20 - results.length;
+        const excludeIds  = [...seen, ...watchlistIds];
+        const placeholders = excludeIds.length ? excludeIds.map(() => '?').join(',') : 'NULL';
+        addItems(db.prepare(`
+            SELECT * FROM entertainment
+            WHERE type = ? AND id NOT IN (${placeholders})
+            ORDER BY id DESC
+            LIMIT ?
+        `).all(type, ...excludeIds, needed));
+    }
+
+    res.json({ success: true, results: results.slice(0, 20) });
+});
+
 // ----------------- Detail route -----------------
 app.get('/api/item/:id', (req, res) => {
     const item = db.prepare(
