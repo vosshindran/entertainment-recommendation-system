@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamFlix - Entertainment Recommendation System</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/darkmode.css">
+</head>
+
+<body>
+    <!-- Navbar injected by app.js -->
+
+    <!-- Hero Section -->
+    <header class="hero-container" id="hero-banner">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h1 class="hero-title" id="hero-title">Loading...</h1>
+            <p class="hero-overview" id="hero-overview"></p>
+            <div class="hero-buttons">
+                <button class="btn btn-primary me-3" id="hero-play"><i class="bi bi-play-fill"></i> Play</button>
+                <button class="btn btn-secondary" id="hero-info"><i class="bi bi-info-circle"></i> More Info</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Movie Rows -->
+    <main>
+        <section class="movie-row-container">
+            <h2 class="movie-row-title">Trending Now</h2>
+            <div class="movie-row" id="trending-row">
+                <div class="loader"></div>
+            </div>
+        </section>
+
+        <section class="movie-row-container">
+            <h2 class="movie-row-title">Top Rated</h2>
+            <div class="movie-row" id="top-rated-row">
+                <div class="loader"></div>
+            </div>
+        </section>
+
+        <section class="movie-row-container">
+            <h2 class="movie-row-title">Action Thrillers</h2>
+            <div class="movie-row" id="action-row">
+                <div class="loader"></div>
+            </div>
+        </section>
+
+        <section class="movie-row-container mb-5">
+            <h2 class="movie-row-title">Comedies</h2>
+            <div class="movie-row" id="comedy-row">
+                <div class="loader"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+
+    <!-- Page Specific Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Fetch Data
+                const [trending, topRated, action, comedy] = await Promise.all([
+                    api.getTrendingMovies(),
+                    api.getTopRatedMovies(),
+                    api.getActionMovies(),
+                    api.getComedyMovies()
+                ]);
+
+                // Render Hero Banner (Use first trending movie)
+                if (trending && trending.results.length > 0) {
+                    const heroMovie = trending.results[0];
+                    const bannerImg = api.getImageUrl(heroMovie.backdrop_path || heroMovie.poster_path, 'original');
+                    document.getElementById('hero-banner').style.backgroundImage = `url(${bannerImg})`;
+                    document.getElementById('hero-title').textContent = heroMovie.title || heroMovie.name;
+                    document.getElementById('hero-overview').textContent = heroMovie.overview;
+
+                    document.getElementById('hero-play').onclick = () => window.location.href = `pages/movie.html?id=${heroMovie.id}`;
+                    document.getElementById('hero-info').onclick = () => window.location.href = `pages/movie.html?id=${heroMovie.id}`;
+                }
+
+                // Render Rows
+                const renderRow = (elementId, data) => {
+                    const container = document.getElementById(elementId);
+                    if (data && data.results) {
+                        container.innerHTML = data.results.map(movie => window.createMovieCard(movie)).join('');
+                    } else {
+                        container.innerHTML = '<p class="text-muted">Failed to load data.</p>';
+                    }
+                };
+
+                renderRow('trending-row', trending);
+                renderRow('top-rated-row', topRated);
+                renderRow('action-row', action);
+                renderRow('comedy-row', comedy);
+
+            } catch (error) {
+                console.error("Initialization error:", error);
+            }
+        });
+    </script>
+</body>
+
+</html>

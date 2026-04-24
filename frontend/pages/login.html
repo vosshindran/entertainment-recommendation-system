@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In - StreamFlix</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="../css/darkmode.css">
+    <style>
+        body { 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-image: url('https://assets.nflxext.com/ffe/siteui/vlv3/f841d4c7-10e1-40af-bcae-07a3f8dc141a/f6d7434e-d6de-4185-a6d4-c77a2d08737b/US-en-20220502-popsignuptwoweeks-perspective_alpha_website_medium.jpg');
+            background-size: cover;
+            background-position: center;
+        }
+        .login-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 0;
+        }
+        .login-card {
+            background: rgba(0, 0, 0, 0.75);
+            padding: 60px 68px 40px;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 450px;
+            z-index: 1;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+        .form-control {
+            background: #333 !important;
+            border: none;
+            color: white !important;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .btn-login {
+            background: #e50914; /* Netflix red vibe for login specifically */
+            color: white;
+            font-weight: bold;
+            padding: 15px;
+            width: 100%;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        .btn-login:hover { background: #f40612; color: white; }
+    </style>
+</head>
+<body>
+    <div class="login-overlay"></div>
+    
+    <div class="login-card animate-fade-in">
+        <h2 class="mb-4 fw-bold">Sign In</h2>
+        <form id="login-form">
+            <input type="text" class="form-control" id="username" placeholder="Username or Email" required>
+            <input type="password" class="form-control" id="password" placeholder="Password" required>
+            <button type="submit" class="btn btn-login">Sign In</button>
+            <div class="d-flex justify-content-between mt-3 text-muted small">
+                <div><input type="checkbox" checked> Remember me</div>
+                <a href="#" class="text-muted text-decoration-none">Need help?</a>
+            </div>
+            <p class="mt-4 text-muted">New to StreamFlix? <a href="#" class="text-white text-decoration-none">Sign up now.</a></p>
+        </form>
+    </div>
+
+    <script src="../js/storage.js"></script>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            storage.login(username);
+            window.location.href = '../index.html';
+        });
+    </script>
+</body>
+</html>
