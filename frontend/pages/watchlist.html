@@ -30,22 +30,7 @@
     <script src="../js/api.js"></script>
     <script src="../js/app.js"></script>
     
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const user = storage.getUser();
-            if (!user) {
-                window.location.href = 'login.html';
-                return;
-            }
-
-            const list = storage.getWatchlist();
-            if (list.length === 0) {
-                document.getElementById('empty-state').classList.remove('d-none');
-            } else {
-                const grid = document.getElementById('movies-grid');
-                grid.innerHTML = list.map(movie => window.createMovieCard(movie)).join('');
-            }
-        });
-    </script>
+    <!-- Page Specific Logic -->
+    <script src="../js/watchlist.js"></script>
 </body>
 </html>

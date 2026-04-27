@@ -50,27 +50,7 @@
     <script src="../js/api.js"></script>
     <script src="../js/app.js"></script>
     
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const user = storage.getUser();
-            if (!user) {
-                window.location.href = 'login.html';
-                return;
-            }
-
-            document.getElementById('profile-name').textContent = user.username;
-            document.getElementById('profile-date').textContent = new Date(user.loggedInAt).toLocaleDateString();
-
-            const watchlist = storage.getWatchlist();
-            document.getElementById('watchlist-count').textContent = watchlist.length;
-
-            const allReviews = storage.getReviews();
-            let reviewCount = 0;
-            for(const movieId in allReviews) {
-                reviewCount += allReviews[movieId].length;
-            }
-            document.getElementById('reviews-count').textContent = reviewCount;
-        });
-    </script>
+    <!-- Page Specific Logic -->
+    <script src="../js/profile.js"></script>
 </body>
 </html>

@@ -65,18 +65,11 @@
                 <div><input type="checkbox" checked> Remember me</div>
                 <a href="#" class="text-muted text-decoration-none">Need help?</a>
             </div>
-            <p class="mt-4 text-muted">New to StreamFlix? <a href="#" class="text-white text-decoration-none">Sign up now.</a></p>
+            <p class="mt-4 text-muted">New to StreamFlix? <a href="register.html" class="text-white text-decoration-none">Sign up now.</a></p>
         </form>
     </div>
 
     <script src="../js/storage.js"></script>
-    <script>
-        document.getElementById('login-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const username = document.getElementById('username').value;
-            storage.login(username);
-            window.location.href = '../index.html';
-        });
-    </script>
+    <script src="../js/auth.js"></script>
 </body>
 </html>
