@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Details - StreamFlix</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="../css/darkmode.css">
+    <style>
+        body { padding-top: 80px; }
+        .backdrop {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 60vh;
+            background-size: cover;
+            background-position: center;
+            z-index: -1;
+            opacity: 0.3;
+            mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 50%, rgba(0,0,0,0) 100%);
+            -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 50%, rgba(0,0,0,0) 100%);
+        }
+        .movie-poster-large {
+            width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        }
+        .review-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div id="backdrop-container" class="backdrop"></div>
+    
+    <div class="container py-5 animate-fade-in" id="content-container">
+        <div class="loader" id="loader"></div>
+        <div class="row d-none" id="movie-content">
+            <div class="col-md-4 mb-4">
+                <img id="movie-poster" src="" alt="Poster" class="movie-poster-large">
+            </div>
+            <div class="col-md-8">
+                <h1 id="movie-title" class="mb-2"></h1>
+                <p class="text-muted mb-4"><span id="movie-date"></span> • <i class="bi bi-star-fill text-warning"></i> <span id="movie-rating"></span>/10 • <span id="movie-genres"></span></p>
+                
+                <h4 class="mb-3">Overview</h4>
+                <p id="movie-overview" class="lead fs-6 mb-4"></p>
+
+                <div class="mb-5">
+                    <button class="btn btn-primary me-2" id="btn-watchlist" onclick="toggleWatchlist()">
+                        <i class="bi bi-plus-lg"></i> Add to Watchlist
+                    </button>
+                </div>
+
+                <hr class="border-secondary mb-5">
+
+                <!-- Reviews Section -->
+                <h4 class="mb-4">User Reviews</h4>
+                <div id="reviews-list" class="mb-4">
+                    <!-- Reviews injected here -->
+                </div>
+
+                <div class="glass-panel" id="review-form-container">
+                    <h5 class="mb-3">Write a Review</h5>
+                    <form id="review-form">
+                        <div class="mb-3">
+                            <label class="form-label">Rating</label>
+                            <select class="form-select bg-dark text-white border-secondary" id="review-rating" required>
+                                <option value="5">5 Stars - Excellent</option>
+                                <option value="4">4 Stars - Very Good</option>
+                                <option value="3">3 Stars - Average</option>
+                                <option value="2">2 Stars - Poor</option>
+                                <option value="1">1 Star - Terrible</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <textarea class="form-control" id="review-text" rows="3" placeholder="What did you think of the movie?" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Submit Review</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../js/storage.js"></script>
+    <script src="../js/api.js"></script>
+    <script src="../js/app.js"></script>
+
+    <!-- Page Specific Logic -->
+    <script src="../js/movie.js"></script>
+</body>
+</html>
