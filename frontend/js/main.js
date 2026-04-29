@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
+    // Load personalised row independently so it doesn't block the main fetch
+    loadForYouRow();
+
     try {
         // Fetch Data
         const [trending, topRated, action, comedy] = await Promise.all([
@@ -39,3 +42,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error("Initialization error:", error);
     }
 });
+
+async function loadForYouRow() {
+    const section = document.getElementById('for-you-section');
+    const row = document.getElementById('for-you-row');
+
+    const results = await api.getForYouMovies('movie');
+
+    // null means user is not logged in — keep section hidden
+    if (!results || results.length === 0) return;
+
+    section.style.display = '';
+    row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
+}
