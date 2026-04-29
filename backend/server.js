@@ -7,10 +7,10 @@ import { fileURLToPath } from 'url';
 import db from './db.js';
 import { getRecommendations, TMDB_GENRES } from './recommendation.js';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 
@@ -27,6 +27,11 @@ app.use(session({
     saveUninitialized: false,
     cookie: { maxAge: 15 * 60 * 1000 }
 }));
+
+// ----------------- Config route -----------------
+app.get('/api/config', (_req, res) => {
+    res.json({ tmdb_api_key: process.env.TMDB_API_KEY });
+});
 
 // ----------------- Authentication routes -----------------
 
