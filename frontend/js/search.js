@@ -1,7 +1,8 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
     const query = params.get('q');
-    
+    const type = params.get('type') || 'movie';
+
     if (!query) {
         document.getElementById('search-query').textContent = '...';
         document.getElementById('loader').classList.add('d-none');
@@ -11,12 +12,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('search-query').textContent = query;
 
     try {
-        const data = await api.searchMovies(query);
+        const res = await fetch(`/api/search?type=${encodeURIComponent(type)}&q=${encodeURIComponent(query)}`);
+        const data = await res.json();
         document.getElementById('loader').classList.add('d-none');
 
-        if (data && data.results && data.results.length > 0) {
+        if (data.success && data.results && data.results.length > 0) {
             const grid = document.getElementById('results-grid');
-            grid.innerHTML = data.results.map(movie => window.createMovieCard(movie)).join('');
+            grid.innerHTML = data.results.map(item => window.createBackendCard(item)).join('');
         } else {
             document.getElementById('no-results').classList.remove('d-none');
         }
