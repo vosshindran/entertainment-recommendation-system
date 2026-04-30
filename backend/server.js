@@ -28,9 +28,21 @@ app.use(session({
     cookie: { maxAge: 15 * 60 * 1000 }
 }));
 
-// ----------------- Config route -----------------
-app.get('/api/config', (_req, res) => {
-    res.json({ tmdb_api_key: process.env.TMDB_API_KEY });
+// ----------------- TMDB proxy -----------------
+// Keeps the API key server-side; the client never sees it.
+app.get('/api/tmdb/*', async (req, res) => {
+    const fetch = (await import('node-fetch')).default;
+    const endpoint = req.params[0];
+    const params = new URLSearchParams(req.query);
+    params.set('api_key', process.env.TMDB_API_KEY);
+    if (!params.has('language')) params.set('language', 'en-US');
+    try {
+        const tmdbRes = await fetch(`https://api.themoviedb.org/3/${endpoint}?${params}`);
+        const data = await tmdbRes.json();
+        res.json(data);
+    } catch (err) {
+        res.status(502).json({ error: 'TMDB proxy error', detail: err.message });
+    }
 });
 
 // ----------------- Authentication routes -----------------
@@ -307,70 +319,104 @@ async function fetchFromAPI(type, query){
 
 // ----------------- For-you recommendations route -----------------
 app.get('/api/for-you', (req, res) => {
-    if (!req.session.user){
+    if (!req.session.user) {
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
     const { type } = req.query;
     const userId = req.session.user.id;
 
-    const recentSearches = db.prepare(`
-        SELECT type, keyword FROM search_history
-        WHERE user_id = ? AND (? IS NULL OR type = ?)
-        GROUP BY type, keyword
-        ORDER BY MAX(searched_at) DESC
-        LIMIT 10
-    `).all(userId, type || null, type || null);
-
-    const watchlistItems = db.prepare(`
-        SELECT e.id, e.genre FROM watchlist w
+    // Build genre preference weights: watchlist=2pts, recent events=1pt each
+    const watchlistGenreRows = db.prepare(`
+        SELECT e.genre FROM watchlist w
         JOIN entertainment e ON w.entertainment_id = e.id
-        WHERE w.user_id = ? AND (? IS NULL OR e.type = ?)
+        WHERE w.user_id = ? AND e.genre IS NOT NULL AND (? IS NULL OR e.type = ?)
     `).all(userId, type || null, type || null);
 
-    const watchlistIds    = new Set(watchlistItems.map(i => i.id));
-    const watchlistGenres = [...new Set(watchlistItems.map(i => i.genre).filter(Boolean))];
+    const eventGenreRows = db.prepare(`
+        SELECT e.genre FROM user_events ue
+        JOIN entertainment e ON ue.entertainment_id = e.id
+        WHERE ue.user_id = ? AND e.genre IS NOT NULL AND (? IS NULL OR e.type = ?)
+        AND ue.created_at > datetime('now', '-30 days')
+    `).all(userId, type || null, type || null);
 
-    const seen    = new Set();
-    const results = [];
-
-    const addItems = (rows) => {
-        for (const item of rows){
-            if (!seen.has(item.id) && !watchlistIds.has(item.id)){
-                seen.add(item.id);
-                results.push(item);
-            }
+    const genreWeights = {};
+    for (const { genre } of watchlistGenreRows) {
+        for (const g of genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
+            genreWeights[g] = (genreWeights[g] || 0) + 2;
         }
-    };
-
-    for (const { type: t, keyword } of recentSearches){
-        addItems(db.prepare(`
-            SELECT * FROM entertainment
-            WHERE type = ? AND LOWER(title) LIKE ?
-            LIMIT 4
-        `).all(t, `%${keyword.toLowerCase()}%`));
+    }
+    for (const { genre } of eventGenreRows) {
+        for (const g of genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
+            genreWeights[g] = (genreWeights[g] || 0) + 1;
+        }
     }
 
-    for (const genre of watchlistGenres.slice(0, 5)){
-        addItems(db.prepare(`
-            SELECT * FROM entertainment
-            WHERE LOWER(genre) LIKE ? AND (? IS NULL OR type = ?)
-            LIMIT 4
-        `).all(`%${genre.toLowerCase()}%`, type || null, type || null));
-    }
+    const watchlistIds = new Set(
+        db.prepare('SELECT entertainment_id FROM watchlist WHERE user_id = ?')
+          .all(userId).map(r => r.entertainment_id)
+    );
 
-    if (results.length < 20 && type){
-        const needed      = 20 - results.length;
-        const excludeIds  = [...seen, ...watchlistIds];
-        const placeholders = excludeIds.length ? excludeIds.map(() => '?').join(',') : 'NULL';
-        addItems(db.prepare(`
-            SELECT * FROM entertainment
-            WHERE type = ? AND id NOT IN (${placeholders})
-            ORDER BY id DESC
-            LIMIT ?
-        `).all(type, ...excludeIds, needed));
-    }
+    // Pull candidates (capped at 300 to keep scoring fast)
+    let candidateQuery = 'SELECT * FROM entertainment WHERE 1=1';
+    const candidateParams = [];
+    if (type) { candidateQuery += ' AND type = ?'; candidateParams.push(type); }
+    candidateQuery += ' LIMIT 300';
+    const candidates = db.prepare(candidateQuery).all(...candidateParams);
 
-    res.json({ success: true, results: results.slice(0, 20) });
+    const hasPrefs = Object.keys(genreWeights).length > 0;
+    const maxWeight = hasPrefs ? Math.max(...Object.values(genreWeights)) : 1;
+
+    const scored = candidates
+        .filter(item => !watchlistIds.has(item.id))
+        .map(item => {
+            // Genre overlap score (0–1)
+            let genreScore = 0;
+            if (hasPrefs && item.genre) {
+                const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
+                const totalWeight = itemGenres.reduce((sum, g) => sum + (genreWeights[g] || 0), 0);
+                genreScore = Math.min(totalWeight / (maxWeight * 2), 1);
+            }
+
+            // Rating score (0–1)
+            const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
+            const rating = extra.tmdb_rating || extra.vote_average || extra.average_rating || 0;
+            const ratingScore = Math.min(Number(rating) / 10, 1);
+
+            // Weighted final score; fall back to pure rating when no genre prefs
+            const score = hasPrefs
+                ? genreScore * 0.6 + ratingScore * 0.4
+                : ratingScore;
+
+            return { ...item, _score: score };
+        })
+        .filter(item => !hasPrefs || item._score > 0)
+        .sort((a, b) => b._score - a._score);
+
+    // If genre filter left nothing, fall back to top-rated across all candidates
+    const results = scored.length > 0
+        ? scored
+        : candidates.filter(i => !watchlistIds.has(i.id)).sort((a, b) => {
+            const aExtra = typeof a.extra === 'string' ? JSON.parse(a.extra || '{}') : (a.extra || {});
+            const bExtra = typeof b.extra === 'string' ? JSON.parse(b.extra || '{}') : (b.extra || {});
+            return (Number(bExtra.tmdb_rating || bExtra.vote_average || 0)) -
+                   (Number(aExtra.tmdb_rating || aExtra.vote_average || 0));
+        });
+
+    // Strip internal _score field before sending
+    res.json({ success: true, results: results.slice(0, 20).map(({ _score, ...item }) => item) });
+});
+
+// ----------------- Event tracking route -----------------
+app.post('/api/events', (req, res) => {
+    if (!req.session.user) return res.status(401).json({ success: false });
+    const { entertainment_id, event_type } = req.body;
+    if (!entertainment_id || !['view', 'watchlist_add', 'like'].includes(event_type)) {
+        return res.status(400).json({ success: false, message: 'Invalid event' });
+    }
+    db.prepare(
+        'INSERT INTO user_events (user_id, entertainment_id, event_type) VALUES (?, ?, ?)'
+    ).run(req.session.user.id, Number(entertainment_id), event_type);
+    res.json({ success: true });
 });
 
 // ----------------- Detail route -----------------
