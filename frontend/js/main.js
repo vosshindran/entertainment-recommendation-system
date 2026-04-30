@@ -50,8 +50,21 @@ async function loadForYouRow() {
     const results = await api.getForYouMovies('movie');
 
     // null means user is not logged in — keep section hidden
-    if (!results || results.length === 0) return;
+    if (results === null) return;
 
     section.style.display = '';
-    row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
+
+    if (results.length > 0) {
+        document.querySelector('#for-you-section .movie-row-title').textContent = 'You May Like';
+        row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
+    } else {
+        // DB is empty (no searches yet) — fall back to TMDB trending
+        document.querySelector('#for-you-section .movie-row-title').textContent = 'Popular Right Now';
+        const trending = await api.getTrendingMovies();
+        if (trending && trending.results && trending.results.length > 0) {
+            row.innerHTML = trending.results.map(movie => window.createMovieCard(movie)).join('');
+        } else {
+            section.style.display = 'none';
+        }
+    }
 }
