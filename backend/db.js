@@ -53,6 +53,20 @@ db.exec(`
         searched_at TEXT DEFAULT (datetime('now')),
         FOREIGN KEY (user_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS user_events (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id          INTEGER NOT NULL,
+        entertainment_id INTEGER NOT NULL,
+        event_type       TEXT NOT NULL CHECK (event_type IN ('view', 'watchlist_add', 'like')),
+        created_at       TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id)          REFERENCES users(id),
+        FOREIGN KEY (entertainment_id) REFERENCES entertainment(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_events_user  ON user_events(user_id);
+    CREATE INDEX IF NOT EXISTS idx_entertainment_type_genre ON entertainment(type, genre);
+    CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id);
 `);
 
 export default db;
