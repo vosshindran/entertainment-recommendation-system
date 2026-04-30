@@ -1,24 +1,12 @@
-// TMDB API integration — key is loaded from the backend at runtime
-const BASE_URL = 'https://api.themoviedb.org/3';
+// TMDB calls are proxied through the backend — the API key never reaches the client.
 const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 const IMAGE_ORIGINAL_URL = 'https://image.tmdb.org/t/p/original';
 
 const api = {
-    _apiKey: null,
-
-    async getApiKey() {
-        if (this._apiKey) return this._apiKey;
-        const res = await fetch('/api/config');
-        const data = await res.json();
-        this._apiKey = data.tmdb_api_key;
-        return this._apiKey;
-    },
-
     async fetchAPI(endpoint, params = {}) {
-        const apiKey = await this.getApiKey();
-        const queryParams = new URLSearchParams({ api_key: apiKey, ...params });
+        const queryParams = new URLSearchParams(params);
         try {
-            const response = await fetch(`${BASE_URL}${endpoint}?${queryParams}`);
+            const response = await fetch(`/api/tmdb${endpoint}?${queryParams}`);
             if (!response.ok) throw new Error('Failed to fetch data');
             return await response.json();
         } catch (error) {
