@@ -216,6 +216,42 @@ h1, h2, h3, h4, h5, h6 {
   border-color: var(--accent-color);
   box-shadow: 0 0 0 0.25rem rgba(0, 168, 225, 0.25);
 }
+.search-input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 320px;
+}
+
+.search-input-group .form-control {
+  width: 100%;
+  padding-right: 44px; /* Make room for the icon */
+  min-width: 250px;
+}
+
+.search-input-group .form-control::placeholder {
+  color: rgba(255, 255, 255, 0.75);
+  opacity: 1;
+}
+
+.search-input-group .form-control::-webkit-input-placeholder {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.search-input-group .form-control:-ms-input-placeholder {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.search-input-group .search-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  font-size: 1rem;
+}
 
 /* Custom Grid */
 .movie-grid {

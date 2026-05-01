@@ -48,8 +48,13 @@ function renderNavbar() {
                         <li class="nav-item"><a class="nav-link" href="${pagesPath}recommendations.html">Recommendations</a></li>
                         ${user ? `<li class="nav-item"><a class="nav-link" href="${pagesPath}watchlist.html">Watchlist</a></li>` : ''}
                     </ul>
-                    <form class="d-flex me-3" onsubmit="event.preventDefault(); window.location.href='${pagesPath}search.html?q=' + this.search.value;">
-                        <input class="form-control me-2" type="search" name="search" placeholder="Search movies..." aria-label="Search">
+                   <form class="d-flex me-3" onsubmit="event.preventDefault(); window.location.href='${pagesPath}search.html?q=' + this.search.value;">
+                        <div class="search-input-group">
+                             <input class="form-control" type="search" name="search" placeholder="search for a movie" aria-label="Search">
+                             <span class="search-icon">
+                                 <i class="bi bi-search"></i>
+                             </span>
+                         </div>
                     </form>
                     <ul class="navbar-nav">
                         <li class="nav-item">
