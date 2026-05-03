@@ -1,10 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
+
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
         loginForm.addEventListener('submit', (e) => {
             e.preventDefault();
+
             const username = document.getElementById('username').value;
             storage.login(username);
+
             window.location.href = '../index.html';
         });
     }
@@ -13,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (registerForm) {
         registerForm.addEventListener('submit', (e) => {
             e.preventDefault();
+
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirm-password').value;
 
@@ -22,8 +26,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const username = document.getElementById('email').value;
-            storage.login(username); // Using the mock login to start the session immediately
+            storage.login(username);
+
             window.location.href = '../index.html';
         });
     }
-});
+
+}); 
