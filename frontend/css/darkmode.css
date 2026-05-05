@@ -31,10 +31,6 @@ body.light-mode .movie-card img {
   box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
 
-body.light-mode .movie-card:hover img {
-  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-}
-
 body.light-mode .glass-panel {
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid rgba(0, 0, 0, 0.05);
@@ -45,9 +41,4 @@ body.light-mode .form-control {
   border: 1px solid #ddd;
   background-color: #fff;
   color: #333;
-}
-
-body.light-mode .form-control:focus {
-  background-color: #fff;
-  color: #1a1a1a;
 }

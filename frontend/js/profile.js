@@ -48,8 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <img 
         src ="${imageUrl}"
         alt = "${latestMovie.title}" 
-        class="img-fluid rounded mb-2"
-        style="max-width: 160px;"
+        class="img-fluid rounded mb-2 profile-movie-image"
       >
       <p class="text-white fw-semibold mb-0">${latestMovie.title}</p>
 
@@ -79,21 +78,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const topRatedWatchlistMovieContainer = document.getElementById(
     'top-rated-watchlist-movie-container',
   );
-  const watchlistMoviesSortedByRating = watchlist.map((x) => x);
-  watchlistMoviesSortedByRating.sort((a, b) => b.vote_average - a.vote_average);
-  const topRatedMovie = watchlistMoviesSortedByRating[0];
-  const imageUrl = api.getImageUrl(topRatedMovie.poster_path);
+  if (watchlist.length > 0) {
+    const watchlistMoviesSortedByRating = watchlist.map((x) => x);
+    watchlistMoviesSortedByRating.sort(
+      (a, b) => b.vote_average - a.vote_average,
+    );
+    const topRatedMovie = watchlistMoviesSortedByRating[0];
+    const imageUrl = api.getImageUrl(topRatedMovie.poster_path);
 
-  console.log(topRatedMovie);
-  topRatedWatchlistMovieContainer.innerHTML = `
+    console.log(topRatedMovie);
+    topRatedWatchlistMovieContainer.innerHTML = `
     <a href="movie.html?id=${topRatedMovie.id}" class="text-decoration-none">
       <img
         src="${imageUrl}"
         alt="topRatedMovie.title"
-        class="img-fluid rounded mb-2"
-        style="max-width: 160px;"
+        class="img-fluid rounded mb-2 profile-movie-image"
       >
       <p class="text-white fw-semibold mb-0">${topRatedMovie.title}</p>
     </a>
   `;
+  }
 });
