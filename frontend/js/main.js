@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
+    // Load personalised row independently so it doesn't block the main fetch
+    loadForYouRow();
+
     try {
         // Fetch Data
         const [trending, topRated, action, comedy] = await Promise.all([
@@ -39,3 +42,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error("Initialization error:", error);
     }
 });
+
+async function loadForYouRow() {
+    const section = document.getElementById('for-you-section');
+    const row = document.getElementById('for-you-row');
+
+    const results = await api.getForYouMovies('movie');
+
+    // null means user is not logged in — keep section hidden
+    if (results === null) return;
+
+    section.style.display = '';
+
+    if (results.length > 0) {
+        document.querySelector('#for-you-section .movie-row-title').textContent = 'You May Like';
+        row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
+    } else {
+        // DB is empty (no searches yet) — fall back to TMDB trending
+        document.querySelector('#for-you-section .movie-row-title').textContent = 'Popular Right Now';
+        const trending = await api.getTrendingMovies();
+        if (trending && trending.results && trending.results.length > 0) {
+            row.innerHTML = trending.results.map(movie => window.createMovieCard(movie)).join('');
+        } else {
+            section.style.display = 'none';
+        }
+    }
+}

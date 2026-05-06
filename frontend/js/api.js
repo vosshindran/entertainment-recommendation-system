@@ -1,33 +1,32 @@
-// TMDB API integration
-// Replace this with your actual TMDB API key
-const API_KEY = '45b8d3db1f9847b47b96a0cc1920abf2';
-const BASE_URL = 'https://api.themoviedb.org/3';
+// TMDB calls are proxied through the backend — the API key never reaches the client.
 const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 const IMAGE_ORIGINAL_URL = 'https://image.tmdb.org/t/p/original';
 
 const api = {
-    /**python -m http.server 5500
-     * Helper to perform fetch requests
-     */
     async fetchAPI(endpoint, params = {}) {
-        if (API_KEY === 'YOUR_TMDB_API_KEY') {
-            console.error("Please set your TMDB API Key in js/api.js");
-            // Return mock data if no key to avoid breaking UI entirely during dev
-            return this.getMockData(endpoint);
-        }
-
-        const queryParams = new URLSearchParams({
-            api_key: API_KEY,
-            ...params
-        });
-
+        const queryParams = new URLSearchParams(params);
         try {
-            const response = await fetch(`${BASE_URL}${endpoint}?${queryParams}`);
+            const response = await fetch(`/api/tmdb${endpoint}?${queryParams}`);
             if (!response.ok) throw new Error('Failed to fetch data');
             return await response.json();
         } catch (error) {
             console.error("API Error:", error);
             return null;
+        }
+    },
+
+    // Personalised picks derived from the user's watchlist genres and search history.
+    // Requires an active session — returns null if the user is not logged in.
+    async getForYouMovies(type = 'movie') {
+        try {
+            const res = await fetch(`/api/for-you?type=${encodeURIComponent(type)}`);
+            if (res.status === 401) return null;
+            if (!res.ok) throw new Error(`for-you request failed: ${res.status}`);
+            const data = await res.json();
+            return data.success ? data.results : [];
+        } catch (error) {
+            console.error('getForYouMovies error:', error);
+            return [];
         }
     },
 
@@ -66,23 +65,6 @@ const api = {
     getImageUrl(path, size = 'w500') {
         if (!path) return 'https://via.placeholder.com/500x750?text=No+Image';
         return size === 'original' ? `${IMAGE_ORIGINAL_URL}${path}` : `${IMAGE_BASE_URL}${path}`;
-    },
-
-    getMockData(endpoint) {
-        // Simple mock data for initial UI rendering if API key is missing
-        const mockMovie = {
-            id: 1,
-            title: "Mock Movie (Set API Key)",
-            poster_path: null,
-            backdrop_path: null,
-            vote_average: 8.5,
-            overview: "Please edit js/api.js and add your TMDB API Key to see real movies."
-        };
-        const mockList = { results: Array(10).fill(mockMovie).map((m, i) => ({ ...m, id: i })) };
-
-        if (endpoint.includes('/movie/')) return mockMovie;
-        if (endpoint.includes('/genre/')) return { genres: [{ id: 28, name: "Action" }, { id: 35, name: "Comedy" }] };
-        return mockList;
     }
 };
 

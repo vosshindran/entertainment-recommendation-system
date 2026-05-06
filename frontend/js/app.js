@@ -1,5 +1,21 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initTheme();
+    // Verify the server session is still alive; sync localStorage to match
+    try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+                window.storage.login(data.username); // keep localStorage fresh
+            } else {
+                window.storage.logout(); // session expired — clear stale localStorage
+            }
+        } else {
+            window.storage.logout();
+        }
+    } catch {
+        // server unreachable — leave localStorage as-is so UI doesn't break offline
+    }
     renderNavbar();
 });
 
@@ -78,7 +94,8 @@ function renderNavbar() {
     document.body.insertAdjacentHTML('afterbegin', navbarHTML);
 }
 
-window.handleLogout = function() {
+window.handleLogout = async function() {
+    await fetch('/api/auth/logout', { method: 'POST' });
     window.storage.logout();
     window.location.reload();
 };
@@ -86,6 +103,22 @@ window.handleLogout = function() {
 /**
  * Common Movie Card rendering
  */
+// Card renderer for items coming from the backend DB (poster_url, local id, etc.)
+// This is from what I implemented where the movie was suggested based on the user's watchlist and search history, so it may not have all TMDB data fields.
+window.createBackendCard = function(item) {
+    const inPages = window.location.pathname.includes('/pages/');
+    const detailPath = inPages ? 'movie.html' : 'pages/movie.html';
+    const poster = item.poster_url || 'https://via.placeholder.com/500x750?text=No+Image';
+    const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
+    const rating = extra.tmdb_rating || extra.vote_average || extra.average_rating || extra.match || null;
+    return `
+        <div class="movie-card" onclick="window.location.href='${detailPath}?backendId=${item.id}'">
+            <img src="${poster}" alt="${item.title}" loading="lazy">
+            ${rating ? `<div class="rating"><i class="bi bi-star-fill"></i> ${Number(rating).toFixed(1)}</div>` : ''}
+        </div>
+    `;
+};
+
 window.createMovieCard = function(movie, isWatchlist = false) {
     const imageUrl = window.api.getImageUrl(movie.poster_path);
     const inPages = window.location.pathname.includes('/pages/');
