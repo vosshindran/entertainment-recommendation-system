@@ -430,7 +430,22 @@ app.get('/api/item/:id', (req, res) => {
 });
 
 // ----------------- Start server -----------------
-app.listen(3000, () => {
-    console.log('Server running on http://localhost:3000');
-});
+const DEFAULT_PORT = Number(process.env.PORT) || 3000;
+function startServer(port) {
+    const server = app.listen(port, () => {
+        console.log(`Server running on http://localhost:${port}`);
+    });
+
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.warn(`Port ${port} busy, trying ${port + 1}...`);
+            startServer(port + 1);
+        } else {
+            console.error('Server error:', err);
+            process.exit(1);
+        }
+    });
+}
+
+startServer(DEFAULT_PORT);
 
