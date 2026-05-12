@@ -28,8 +28,7 @@ app.use(session({
     cookie: { maxAge: 15 * 60 * 1000 }
 }));
 
-// ----------------- TMDB proxy -----------------
-// Keeps the API key server-side; the client never sees it.
+// this is the tmdb proxy
 app.get('/api/tmdb/*', async (req, res) => {
     const fetch = (await import('node-fetch')).default;
     const endpoint = req.params[0];
@@ -45,8 +44,7 @@ app.get('/api/tmdb/*', async (req, res) => {
     }
 });
 
-// ----------------- Authentication routes -----------------
-
+// signup route
 app.post('/api/auth/register', async (req, res) => {
     const { username, email, password } = req.body;
     try {
@@ -58,6 +56,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
+// login route
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
@@ -70,10 +69,12 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({ success: true, username: user.username, message: 'Login successful' });
 });
 
+// logout route
 app.post('/api/auth/logout', (req, res) => {
     req.session.destroy();
     res.json({ success: true, message: 'Logout successful' });
 });
+
 
 app.get('/api/auth/me', (req, res) => {
     if (!req.session.user){
@@ -82,7 +83,7 @@ app.get('/api/auth/me', (req, res) => {
     res.json({ success: true, username: req.session.user.username });
 });
 
-// ----------------- Search route -----------------
+// search route
 app.get('/api/search', async (req, res) => {
     const { type, q, genre } = req.query;
     if(!type || !q){
@@ -95,7 +96,7 @@ app.get('/api/search', async (req, res) => {
         return res.json({ success: true, results: req.session[cacheKey].data, source: 'session_cache' });
     }
 
-    // Record search history when user is logged in — skip if same keyword was logged in the last minute
+    // record search history if user is logged in
     if (req.session.user) {
         const recent = db.prepare(
             `SELECT id FROM search_history WHERE user_id = ? AND type = ? AND keyword = ?
@@ -107,7 +108,7 @@ app.get('/api/search', async (req, res) => {
         }
     }
 
-    // 2. Local DB — filter by title keyword and optionally by genre/category
+    // filter by title keyword or optionally genre
     let query = 'SELECT * FROM entertainment WHERE type = ? AND LOWER(title) LIKE ?';
     let params = [type, `%${q.toLowerCase()}%`];
     if (genre) {
@@ -121,7 +122,7 @@ app.get('/api/search', async (req, res) => {
         return res.json({ success: true, results: rows, source: 'local_db' });
     }
 
-    // 3. External API
+    // external api
     try {
         const apiResults = await fetchFromAPI(type, q);
 
@@ -157,7 +158,7 @@ app.get('/api/search', async (req, res) => {
     }
 });
 
-// ----------------- Recommendations route -----------------
+// recommendations route
 app.get('/api/recommend/:id', async (req, res) => {
     if (!req.session.user) return res.status(401).json({ error: 'Not logged in' });
     try {
@@ -170,7 +171,7 @@ app.get('/api/recommend/:id', async (req, res) => {
 });
 
 
-// ----------------- Watchlist route -----------------
+// watchlist route
 app.get('/api/watchlist', (req, res) => {
     if (!req.session.user){
         return res.status(401).json({ success: false, message: 'Not logged in' });
@@ -208,7 +209,7 @@ app.delete('/api/watchlist/:id', (req, res) => {
     res.json({ success: true, message: 'Removed from watchlist' });
 });
 
-// =----------------- Review route -----------------
+// review route
 app.get('/api/reviews/:entertainment_id', (req, res) => {
     const { entertainment_id } = req.params;
     const reviews = db.prepare(`
@@ -239,7 +240,7 @@ app.post('/api/reviews', (req, res) => {
     res.json({ success: true, message: 'Review submitted' });
 });
 
-// ----------------- API Fetcher -----------------
+// api fetcher
 async function fetchFromAPI(type, query){
     const fetch = (await import('node-fetch')).default;
 
@@ -287,8 +288,7 @@ async function fetchFromAPI(type, query){
         const data = await res.json();
         const tracks = (data.results?.trackmatches?.track || []).slice(0, 8);
 
-        // Last.fm deprecated image hosting — images are always empty strings.
-        // Fall back to iTunes Search API (free, no key needed) for album artwork.
+        // use last.fm first, if not fallback to itunes api
         return await Promise.all(tracks.map(async t => {
             let posterUrl = null;
             try {
@@ -317,7 +317,7 @@ async function fetchFromAPI(type, query){
     return [];
 }
 
-// ----------------- For-you recommendations route -----------------
+// for-you route
 app.get('/api/for-you', (req, res) => {
     if (!req.session.user) {
         return res.status(401).json({ success: false, message: 'Not logged in' });
@@ -356,7 +356,7 @@ app.get('/api/for-you', (req, res) => {
           .all(userId).map(r => r.entertainment_id)
     );
 
-    // Pull candidates (capped at 300 to keep scoring fast)
+    // Pull candidates 
     let candidateQuery = 'SELECT * FROM entertainment WHERE 1=1';
     const candidateParams = [];
     if (type) { candidateQuery += ' AND type = ?'; candidateParams.push(type); }
@@ -369,7 +369,6 @@ app.get('/api/for-you', (req, res) => {
     const scored = candidates
         .filter(item => !watchlistIds.has(item.id))
         .map(item => {
-            // Genre overlap score (0–1)
             let genreScore = 0;
             if (hasPrefs && item.genre) {
                 const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
@@ -382,7 +381,7 @@ app.get('/api/for-you', (req, res) => {
             const rating = extra.tmdb_rating || extra.vote_average || extra.average_rating || 0;
             const ratingScore = Math.min(Number(rating) / 10, 1);
 
-            // Weighted final score; fall back to pure rating when no genre prefs
+            // weighted final score
             const score = hasPrefs
                 ? genreScore * 0.6 + ratingScore * 0.4
                 : ratingScore;
@@ -392,7 +391,7 @@ app.get('/api/for-you', (req, res) => {
         .filter(item => !hasPrefs || item._score > 0)
         .sort((a, b) => b._score - a._score);
 
-    // If genre filter left nothing, fall back to top-rated across all candidates
+    // Iif genre filter left nothing, fallback
     const results = scored.length > 0
         ? scored
         : candidates.filter(i => !watchlistIds.has(i.id)).sort((a, b) => {
@@ -402,11 +401,10 @@ app.get('/api/for-you', (req, res) => {
                    (Number(aExtra.tmdb_rating || aExtra.vote_average || 0));
         });
 
-    // Strip internal _score field before sending
     res.json({ success: true, results: results.slice(0, 20).map(({ _score, ...item }) => item) });
 });
 
-// ----------------- Event tracking route -----------------
+// event tracking route
 app.post('/api/events', (req, res) => {
     if (!req.session.user) return res.status(401).json({ success: false });
     const { entertainment_id, event_type } = req.body;
@@ -419,7 +417,7 @@ app.post('/api/events', (req, res) => {
     res.json({ success: true });
 });
 
-// ----------------- Detail route -----------------
+// detail route
 app.get('/api/item/:id', (req, res) => {
     const item = db.prepare(
         'SELECT * FROM entertainment WHERE id = ?'
@@ -429,7 +427,7 @@ app.get('/api/item/:id', (req, res) => {
     res.json(item);
 });
 
-// ----------------- Start server -----------------
+// start the server
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
 function startServer(port) {
     const server = app.listen(port, () => {
