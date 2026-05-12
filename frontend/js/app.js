@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', async () => {
     initTheme();
-    // Verify the server session is still alive; sync localStorage to match
+    // check server still up, sync localStorage
     try {
         const res = await fetch('/api/auth/me');
         if (res.ok) {
@@ -14,7 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.storage.logout();
         }
     } catch {
-        // server unreachable — leave localStorage as-is so UI doesn't break offline
     }
     renderNavbar();
 });
@@ -30,7 +29,7 @@ function applyTheme(isDark) {
     } else {
         document.body.classList.add('light-mode');
     }
-    // Update toggle button text if it exists
+    // change toggle button text if it exists
     const toggleBtn = document.getElementById('theme-toggle-btn');
     if (toggleBtn) {
         toggleBtn.innerHTML = isDark ? '<i class="bi bi-sun-fill"></i> Light Mode' : '<i class="bi bi-moon-fill"></i> Dark Mode';
@@ -46,7 +45,6 @@ function toggleTheme() {
 function renderNavbar() {
     const user = window.storage.getUser();
     
-    // Determine relative path depth
     const inPages = window.location.pathname.includes('/pages/');
     const basePath = inPages ? '../' : './';
     const pagesPath = inPages ? './' : './pages/';
@@ -90,7 +88,7 @@ function renderNavbar() {
         </nav>
     `;
 
-    // Insert at the top of the body
+    // insert at the top of the body
     document.body.insertAdjacentHTML('afterbegin', navbarHTML);
 }
 
@@ -100,11 +98,7 @@ window.handleLogout = async function() {
     window.location.reload();
 };
 
-/**
- * Common Movie Card rendering
- */
-// Card renderer for items coming from the backend DB (poster_url, local id, etc.)
-// This is from what I implemented where the movie was suggested based on the user's watchlist and search history, so it may not have all TMDB data fields.
+//movie card
 window.createBackendCard = function(item) {
     const inPages = window.location.pathname.includes('/pages/');
     const detailPath = inPages ? 'movie.html' : 'pages/movie.html';
