@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const userReviews = allReviews[movieId].filter(r => r.author === user.username);
         if (userReviews.length > 0) {
             hasReviews = true;
-            // We'd ideally fetch the movie title here, but we can display the review with a link
+            // display review with link
             const movieHTML = userReviews.map(r => `
                 <div class="glass-panel mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
