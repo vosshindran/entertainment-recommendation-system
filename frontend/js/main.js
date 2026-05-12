@@ -1,9 +1,8 @@
 document.addEventListener('DOMContentLoaded', async () => {
-    // Load personalised row independently so it doesn't block the main fetch
+    // load row independently
     loadForYouRow();
 
     try {
-        // Fetch Data
         const [trending, topRated, action, comedy] = await Promise.all([
             api.getTrendingMovies(),
             api.getTopRatedMovies(),
@@ -11,7 +10,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             api.getComedyMovies()
         ]);
 
-        // Render Hero Banner (Use first trending movie)
         if (trending && trending.results.length > 0) {
             const heroMovie = trending.results[0];
             const bannerImg = api.getImageUrl(heroMovie.backdrop_path || heroMovie.poster_path, 'original');
@@ -23,7 +21,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('hero-info').onclick = () => window.location.href = `pages/movie.html?id=${heroMovie.id}`;
         }
 
-        // Render Rows
         const renderRow = (elementId, data) => {
             const container = document.getElementById(elementId);
             if (data && data.results) {
@@ -49,7 +46,7 @@ async function loadForYouRow() {
 
     const results = await api.getForYouMovies('movie');
 
-    // null means user is not logged in — keep section hidden
+    // user x logged in
     if (results === null) return;
 
     section.style.display = '';
@@ -58,7 +55,7 @@ async function loadForYouRow() {
         document.querySelector('#for-you-section .movie-row-title').textContent = 'You May Like';
         row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
     } else {
-        // DB is empty (no searches yet) — fall back to TMDB trending
+        // db empty because no searches eyt
         document.querySelector('#for-you-section .movie-row-title').textContent = 'Popular Right Now';
         const trending = await api.getTrendingMovies();
         if (trending && trending.results && trending.results.length > 0) {
