@@ -20,8 +20,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// ─── Backend item (our DB) ────────────────────────────────────────────────────
-
+// load our db backend item
 async function loadBackendItem(backendId) {
     currentBackendId = parseInt(backendId, 10);
 
@@ -52,8 +51,7 @@ async function loadBackendItem(backendId) {
     await loadRecommendations(currentBackendId);
 }
 
-// ─── TMDB item (direct TMDB id) ───────────────────────────────────────────────
-
+// tmdb item
 async function loadTMDBItem(movieId) {
     const movie = await api.getMovieDetails(movieId);
     if (!movie) throw new Error('Could not fetch movie');
@@ -77,8 +75,7 @@ async function loadTMDBItem(movieId) {
     setupReviewForm();
 }
 
-// ─── Event tracking ───────────────────────────────────────────────────────────
-
+// event tracking
 function trackEvent(entertainmentId, eventType) {
     fetch('/api/events', {
         method: 'POST',
@@ -87,8 +84,7 @@ function trackEvent(entertainmentId, eventType) {
     }).catch(() => {});
 }
 
-// ─── Watchlist ────────────────────────────────────────────────────────────────
-
+// watchlist
 async function updateWatchlistButton() {
     const btn = document.getElementById('btn-watchlist');
 
@@ -141,7 +137,7 @@ window.toggleWatchlist = async function () {
     setWatchlistBtn(btn, !inList);
 };
 
-// ─── Reviews ──────────────────────────────────────────────────────────────────
+// reviews
 
 async function renderReviews() {
     const container = document.getElementById('reviews-list');
@@ -217,7 +213,7 @@ function setupReviewForm() {
     });
 }
 
-// ─── Recommendations row (backend items only) ─────────────────────────────────
+// recommendation row (backend only)
 
 async function loadRecommendations(backendId) {
     const user = window.storage.getUser();
@@ -240,7 +236,7 @@ async function loadRecommendations(backendId) {
     } catch { /* recommendations are non-critical */ }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// other helper
 
 function escapeHtml(str) {
     return String(str)
