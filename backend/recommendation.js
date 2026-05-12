@@ -1,10 +1,4 @@
-// Recommendation logic for entertainment items
-
-
-// The recommendation function that generates recommendations based on the genre and type of search results
-// The user will also be able to see the recommendations in search.html for everytime search result
-
-// Import necessary modules and database connection
+// Import modules db connection
 import db from './db.js';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -24,7 +18,6 @@ export const TMDB_GENRES = {
     10765: 'Sci-Fi & Fantasy', 10766: 'Soap', 10767: 'Talk', 10768: 'War & Politics'
 };
 
-// Everytime user get recommendation, we upsert, if the user has already get recommendation for the same genre and type, we update the recommendation, otherwise we insert a new recommendation
 // we find through db else we insert a new one
 
 function upsertItems(item){
@@ -311,7 +304,7 @@ export async function getRecommendations(entertainmentID, userID) {
     
     const watchlistIDs = db.prepare('SELECT entertainment_id FROM watchlist WHERE user_id = ?').all(userID).map(row => row.entertainment_id);
 
-    // 1. Using external APIs
+    // Using external APIs
     let recommendations = [];
     try{
         if (item.type === 'movie' || item.type === 'show') {
@@ -325,7 +318,7 @@ export async function getRecommendations(entertainmentID, userID) {
         console.error('Error fetching recommendations:', error);
     }
 
-    // 2. Using local db when external API is not working
+    // Using local db when external API is not working
     try{
         if(recommendations.length === 0 && item.genre){
             const genre = item.genre.split(',')[0].trim(); // Get the first genre for simplicity
@@ -337,7 +330,7 @@ export async function getRecommendations(entertainmentID, userID) {
         console.error('Error fetching local recommendations:', error);
     }
 
-    // 3. Filter out current item, watchlist items, and duplicates (by id)
+    // Filter out current item, watchlist items, and duplicates (by id)
     const seenIds = new Set();
     const filteredRecommendations = recommendations.filter(rec => {
         if (rec.id === parseInt(entertainmentID)) return false;
@@ -347,7 +340,7 @@ export async function getRecommendations(entertainmentID, userID) {
         return true;
     });
 
-    // 4. Sort by rating — extra may be a JSON string (from DB) or an object (freshly mapped)
+    // Sort by rating - extra may be a JSON string 
     filteredRecommendations.sort((a, b) => {
         const aExtra = typeof a.extra === 'string' ? JSON.parse(a.extra || '{}') : (a.extra || {});
         const bExtra = typeof b.extra === 'string' ? JSON.parse(b.extra || '{}') : (b.extra || {});
