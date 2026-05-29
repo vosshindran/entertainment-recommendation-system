@@ -4,7 +4,16 @@ import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import db from './db.js';
+import dbConnection from './db.js'; // MongoDB connection
+import { 
+    User, 
+    Entertainment, 
+    Watchlist, 
+    Review, 
+    SearchHistory, 
+    UserEvent, 
+    getNextSequenceValue 
+} from './models.js';
 import { getRecommendations, TMDB_GENRES } from './recommendation.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,7 +31,7 @@ app.get('/', (_req, res) => {
 });
 
 app.use(session({
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || 'dev-secret-key-streamflix-2026',
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 15 * 60 * 1000 }
@@ -49,7 +58,14 @@ app.post('/api/auth/register', async (req, res) => {
     const { username, email, password } = req.body;
     try {
         const hash = await bcrypt.hash(password, 10);
-        db.prepare('INSERT INTO users (username, email, password) VALUES (?, ?, ?)').run(username, email, hash);
+        const nextId = await getNextSequenceValue('users');
+        const user = new User({
+            id: nextId,
+            username,
+            email,
+            password: hash
+        });
+        await user.save();
         res.json({ success: true, message: 'User registered successfully' });
     } catch (err) {
         res.status(400).json({ success: false, message: 'Username or email already exists' });
@@ -59,14 +75,18 @@ app.post('/api/auth/register', async (req, res) => {
 // login route
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
-    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    try {
+        const user = await User.findOne({ username });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        if (!user || !(await bcrypt.compare(password, user.password))) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+
+        req.session.user = { id: user.id, username: user.username };
+        res.json({ success: true, username: user.username, message: 'Login successful' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Server login error' });
     }
-
-    req.session.user = { id: user.id, username: user.username };
-    res.json({ success: true, username: user.username, message: 'Login successful' });
 });
 
 // logout route
@@ -74,7 +94,6 @@ app.post('/api/auth/logout', (req, res) => {
     req.session.destroy();
     res.json({ success: true, message: 'Logout successful' });
 });
-
 
 app.get('/api/auth/me', (req, res) => {
     if (!req.session.user){
@@ -96,65 +115,74 @@ app.get('/api/search', async (req, res) => {
         return res.json({ success: true, results: req.session[cacheKey].data, source: 'session_cache' });
     }
 
-    // record search history if user is logged in
-    if (req.session.user) {
-        const recent = db.prepare(
-            `SELECT id FROM search_history WHERE user_id = ? AND type = ? AND keyword = ?
-             AND searched_at > datetime('now', '-1 minute')`
-        ).get(req.session.user.id, type, q);
-        if (!recent) {
-            db.prepare('INSERT INTO search_history (user_id, type, keyword) VALUES (?, ?, ?)')
-              .run(req.session.user.id, type, q);
-        }
-    }
-
-    // filter by title keyword or optionally genre
-    let query = 'SELECT * FROM entertainment WHERE type = ? AND LOWER(title) LIKE ?';
-    let params = [type, `%${q.toLowerCase()}%`];
-    if (genre) {
-        query += ' AND LOWER(genre) LIKE ?';
-        params.push(`%${genre.toLowerCase()}%`);
-    }
-    query += ' LIMIT 8';
-    const rows = db.prepare(query).all(...params);
-    if (rows.length >= 3){
-        req.session[cacheKey] = { data: rows, timestamp: Date.now() };
-        return res.json({ success: true, results: rows, source: 'local_db' });
-    }
-
-    // external api
     try {
+        // record search history if user is logged in
+        if (req.session.user) {
+            const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+            const recent = await SearchHistory.findOne({
+                user_id: req.session.user.id,
+                type,
+                keyword: q,
+                searched_at: { $gt: oneMinuteAgo }
+            });
+            if (!recent) {
+                const nextHistId = await getNextSequenceValue('search_history');
+                const newHistory = new SearchHistory({
+                    id: nextHistId,
+                    user_id: req.session.user.id,
+                    type,
+                    keyword: q
+                });
+                await newHistory.save();
+            }
+        }
+
+        // filter by title keyword or optionally genre
+        const queryObj = {
+            type,
+            title: { $regex: q, $options: 'i' }
+        };
+        if (genre) {
+            queryObj.genre = { $regex: genre, $options: 'i' };
+        }
+        
+        const rows = await Entertainment.find(queryObj).limit(8).lean();
+
+        if (rows.length >= 3){
+            req.session[cacheKey] = { data: rows, timestamp: Date.now() };
+            return res.json({ success: true, results: rows, source: 'local_db' });
+        }
+
+        // external api
         const apiResults = await fetchFromAPI(type, q);
 
         for (const item of apiResults){
-            const existing = db.prepare(
-                'SELECT * FROM entertainment WHERE type = ? AND external_id = ?'
-            ).get(item.type, String(item.external_id));
+            let existing = await Entertainment.findOne({ type: item.type, external_id: String(item.external_id) });
 
             if (existing) {
                 item.id = existing.id;
             } else {
-                const info = db.prepare(`
-                    INSERT INTO entertainment (type, external_id, title, description, poster_url, release_year, genre, extra)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(
-                    item.type,
-                    String(item.external_id),
-                    item.title,
-                    item.description,
-                    item.poster_url,
-                    item.release_year,
-                    item.genre,
-                    JSON.stringify(item.extra || {})
-                );
-                item.id = info.lastInsertRowid;
+                const nextEntId = await getNextSequenceValue('entertainment');
+                const newItem = new Entertainment({
+                    id: nextEntId,
+                    type: item.type,
+                    external_id: String(item.external_id),
+                    title: item.title,
+                    description: item.description,
+                    poster_url: item.poster_url,
+                    release_year: item.release_year ? Number(item.release_year) : null,
+                    genre: item.genre,
+                    extra: item.extra || {}
+                });
+                await newItem.save();
+                item.id = nextEntId;
             }
         }
 
         req.session[cacheKey] = { data: apiResults, timestamp: Date.now() };
         res.json({ success: true, results: apiResults, source: 'external_api' });
-    }catch (err) {
-        res.status(500).json({ success: false, message: 'Error fetching from external API', error: err.message });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Search execution error', error: err.message });
     }
 });
 
@@ -170,58 +198,82 @@ app.get('/api/recommend/:id', async (req, res) => {
     }
 });
 
-
 // watchlist route
-app.get('/api/watchlist', (req, res) => {
+app.get('/api/watchlist', async (req, res) => {
     if (!req.session.user){
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
-    const items = db.prepare(`
-        SELECT e.* FROM watchlist w
-        JOIN entertainment e ON w.entertainment_id = e.id
-        WHERE w.user_id = ? 
-    `).all(req.session.user.id);
-    res.json({ success: true, watchlist: items });
+    try {
+        const watchlistItems = await Watchlist.find({ user_id: req.session.user.id }).lean();
+        const entIds = watchlistItems.map(w => w.entertainment_id);
+        const items = await Entertainment.find({ id: { $in: entIds } }).lean();
+        res.json({ success: true, watchlist: items });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to get watchlist' });
+    }
 });
 
-app.post('/api/watchlist', (req, res) => {
+app.post('/api/watchlist', async (req, res) => {
     if (!req.session.user){
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
     const { entertainment_id } = req.body;
     try {
-        db.prepare('INSERT OR IGNORE INTO watchlist (user_id, entertainment_id) VALUES (?, ?)'
-        ).run(req.session.user.id, entertainment_id);
+        const existing = await Watchlist.findOne({ user_id: req.session.user.id, entertainment_id: Number(entertainment_id) });
+        if (!existing) {
+            const nextWatchId = await getNextSequenceValue('watchlist');
+            const newWatch = new Watchlist({
+                id: nextWatchId,
+                user_id: req.session.user.id,
+                entertainment_id: Number(entertainment_id)
+            });
+            await newWatch.save();
+        }
         res.json({ success: true, message: 'Added to watchlist' });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(400).json({ success: false, message: 'Already in watchlist or invalid entertainment ID' });
     }
 });
 
-app.delete('/api/watchlist/:id', (req, res) => {
+app.delete('/api/watchlist/:id', async (req, res) => {
     if (!req.session.user){
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
     const { id } = req.params;
-    db.prepare('DELETE FROM watchlist WHERE user_id = ? AND entertainment_id = ?'
-    ).run(req.session.user.id, id);
-    res.json({ success: true, message: 'Removed from watchlist' });
+    try {
+        await Watchlist.deleteOne({ user_id: req.session.user.id, entertainment_id: Number(id) });
+        res.json({ success: true, message: 'Removed from watchlist' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to remove from watchlist' });
+    }
 });
 
 // review route
-app.get('/api/reviews/:entertainment_id', (req, res) => {
+app.get('/api/reviews/:entertainment_id', async (req, res) => {
     const { entertainment_id } = req.params;
-    const reviews = db.prepare(`
-        SELECT r.*, u.username FROM reviews r
-        JOIN users u ON r.user_id = u.id
-        WHERE r.entertainment_id = ?
-        ORDER BY r.created_at DESC
-    `).all(entertainment_id);
-    res.json({ success: true, reviews });
+    try {
+        const reviews = await Review.find({ entertainment_id: Number(entertainment_id) }).sort({ created_at: -1 }).lean();
+        const userIds = [...new Set(reviews.map(r => r.user_id))];
+        const users = await User.find({ id: { $in: userIds } }).select('id username').lean();
+        const userMap = new Map(users.map(u => [u.id, u.username]));
+
+        const reviewsWithUsernames = reviews.map(r => ({
+            id: r.id,
+            user_id: r.user_id,
+            entertainment_id: r.entertainment_id,
+            rating: r.rating,
+            comment: r.comment,
+            username: userMap.get(r.user_id) || 'Unknown User',
+            created_at: new Date(r.created_at).toISOString().replace('T', ' ').substring(0, 19)
+        }));
+
+        res.json({ success: true, reviews: reviewsWithUsernames });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to load reviews' });
+    }
 });
 
-app.post('/api/reviews', (req, res) => {
+app.post('/api/reviews', async (req, res) => {
     if (!req.session.user){
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
@@ -233,11 +285,20 @@ app.post('/api/reviews', (req, res) => {
     if (!Number.isInteger(r) || r < 1 || r > 5) {
         return res.status(400).json({ success: false, message: 'Rating must be an integer between 1 and 5' });
     }
-    db.prepare(`
-        INSERT INTO reviews (user_id, entertainment_id, rating, comment)
-        VALUES (?, ?, ?, ?)
-    `).run(req.session.user.id, Number(entertainment_id), r, comment ?? null);
-    res.json({ success: true, message: 'Review submitted' });
+    try {
+        const nextReviewId = await getNextSequenceValue('reviews');
+        const newReview = new Review({
+            id: nextReviewId,
+            user_id: req.session.user.id,
+            entertainment_id: Number(entertainment_id),
+            rating: r,
+            comment: comment ?? null
+        });
+        await newReview.save();
+        res.json({ success: true, message: 'Review submitted' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to submit review' });
+    }
 });
 
 // api fetcher
@@ -277,7 +338,7 @@ async function fetchFromAPI(type, query){
             release_year:b.volumeInfo.publishedDate?.split('-')[0] || null,
             genre:  b.volumeInfo.categories?.[0] || null,
             extra: {
-                authors: b.volumeInfo.authors?.[0] || [],
+                authors: b.volumeInfo.authors || [],
             }
         }));
     }
@@ -318,113 +379,140 @@ async function fetchFromAPI(type, query){
 }
 
 // for-you route
-app.get('/api/for-you', (req, res) => {
+app.get('/api/for-you', async (req, res) => {
     if (!req.session.user) {
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
     const { type } = req.query;
     const userId = req.session.user.id;
 
-    // Build genre preference weights: watchlist=2pts, recent events=1pt each
-    const watchlistGenreRows = db.prepare(`
-        SELECT e.genre FROM watchlist w
-        JOIN entertainment e ON w.entertainment_id = e.id
-        WHERE w.user_id = ? AND e.genre IS NOT NULL AND (? IS NULL OR e.type = ?)
-    `).all(userId, type || null, type || null);
-
-    const eventGenreRows = db.prepare(`
-        SELECT e.genre FROM user_events ue
-        JOIN entertainment e ON ue.entertainment_id = e.id
-        WHERE ue.user_id = ? AND e.genre IS NOT NULL AND (? IS NULL OR e.type = ?)
-        AND ue.created_at > datetime('now', '-30 days')
-    `).all(userId, type || null, type || null);
-
-    const genreWeights = {};
-    for (const { genre } of watchlistGenreRows) {
-        for (const g of genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
-            genreWeights[g] = (genreWeights[g] || 0) + 2;
+    try {
+        // 1. Get user's watchlist item IDs and fetch their genres
+        const watchlistItems = await Watchlist.find({ user_id: userId }).lean();
+        const watchlistEntIds = watchlistItems.map(w => w.entertainment_id);
+        
+        const watchlistGenreQuery = { id: { $in: watchlistEntIds }, genre: { $ne: null } };
+        if (type) {
+            watchlistGenreQuery.type = type;
         }
-    }
-    for (const { genre } of eventGenreRows) {
-        for (const g of genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
-            genreWeights[g] = (genreWeights[g] || 0) + 1;
+        const watchlistGenreDocs = await Entertainment.find(watchlistGenreQuery).select('genre').lean();
+
+        // 2. Get user's recent events in the last 30 days
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const eventItems = await UserEvent.find({
+            user_id: userId,
+            created_at: { $gt: thirtyDaysAgo }
+        }).lean();
+        const eventEntIds = eventItems.map(e => e.entertainment_id);
+
+        const eventGenreQuery = { id: { $in: eventEntIds }, genre: { $ne: null } };
+        if (type) {
+            eventGenreQuery.type = type;
         }
-    }
+        const eventGenreDocs = await Entertainment.find(eventGenreQuery).select('genre').lean();
 
-    const watchlistIds = new Set(
-        db.prepare('SELECT entertainment_id FROM watchlist WHERE user_id = ?')
-          .all(userId).map(r => r.entertainment_id)
-    );
-
-    // Pull candidates 
-    let candidateQuery = 'SELECT * FROM entertainment WHERE 1=1';
-    const candidateParams = [];
-    if (type) { candidateQuery += ' AND type = ?'; candidateParams.push(type); }
-    candidateQuery += ' LIMIT 300';
-    const candidates = db.prepare(candidateQuery).all(...candidateParams);
-
-    const hasPrefs = Object.keys(genreWeights).length > 0;
-    const maxWeight = hasPrefs ? Math.max(...Object.values(genreWeights)) : 1;
-
-    const scored = candidates
-        .filter(item => !watchlistIds.has(item.id))
-        .map(item => {
-            let genreScore = 0;
-            if (hasPrefs && item.genre) {
-                const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
-                const totalWeight = itemGenres.reduce((sum, g) => sum + (genreWeights[g] || 0), 0);
-                genreScore = Math.min(totalWeight / (maxWeight * 2), 1);
+        // 3. Build genre preference weights: watchlist=2pts, recent events=1pt each
+        const genreWeights = {};
+        for (const doc of watchlistGenreDocs) {
+            if (doc.genre) {
+                for (const g of doc.genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
+                    genreWeights[g] = (genreWeights[g] || 0) + 2;
+                }
             }
+        }
+        for (const doc of eventGenreDocs) {
+            if (doc.genre) {
+                for (const g of doc.genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
+                    genreWeights[g] = (genreWeights[g] || 0) + 1;
+                }
+            }
+        }
 
-            // Rating score (0–1)
-            const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
-            const rating = extra.tmdb_rating || extra.vote_average || extra.average_rating || 0;
-            const ratingScore = Math.min(Number(rating) / 10, 1);
+        const watchlistIdsSet = new Set(watchlistEntIds);
 
-            // weighted final score
-            const score = hasPrefs
-                ? genreScore * 0.6 + ratingScore * 0.4
-                : ratingScore;
+        // 4. Pull candidates
+        const candidateQuery = {};
+        if (type) {
+            candidateQuery.type = type;
+        }
+        const candidates = await Entertainment.find(candidateQuery).limit(300).lean();
 
-            return { ...item, _score: score };
-        })
-        .filter(item => !hasPrefs || item._score > 0)
-        .sort((a, b) => b._score - a._score);
+        const hasPrefs = Object.keys(genreWeights).length > 0;
+        const maxWeight = hasPrefs ? Math.max(...Object.values(genreWeights)) : 1;
 
-    // Iif genre filter left nothing, fallback
-    const results = scored.length > 0
-        ? scored
-        : candidates.filter(i => !watchlistIds.has(i.id)).sort((a, b) => {
-            const aExtra = typeof a.extra === 'string' ? JSON.parse(a.extra || '{}') : (a.extra || {});
-            const bExtra = typeof b.extra === 'string' ? JSON.parse(b.extra || '{}') : (b.extra || {});
-            return (Number(bExtra.tmdb_rating || bExtra.vote_average || 0)) -
-                   (Number(aExtra.tmdb_rating || aExtra.vote_average || 0));
-        });
+        const scored = candidates
+            .filter(item => !watchlistIdsSet.has(item.id))
+            .map(item => {
+                let genreScore = 0;
+                if (hasPrefs && item.genre) {
+                    const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
+                    const totalWeight = itemGenres.reduce((sum, g) => sum + (genreWeights[g] || 0), 0);
+                    genreScore = Math.min(totalWeight / (maxWeight * 2), 1);
+                }
 
-    res.json({ success: true, results: results.slice(0, 20).map(({ _score, ...item }) => item) });
+                // Rating score (0–1)
+                const extraObj = item.extra || {};
+                const rating = extraObj.tmdb_rating || extraObj.vote_average || extraObj.average_rating || 0;
+                const ratingScore = Math.min(Number(rating) / 10, 1);
+
+                // weighted final score
+                const score = hasPrefs
+                    ? genreScore * 0.6 + ratingScore * 0.4
+                    : ratingScore;
+
+                return { ...item, _score: score };
+            })
+            .filter(item => !hasPrefs || item._score > 0)
+            .sort((a, b) => b._score - a._score);
+
+        // If genre filter left nothing, fallback to rating sort
+        const results = scored.length > 0
+            ? scored
+            : candidates.filter(i => !watchlistIdsSet.has(i.id)).sort((a, b) => {
+                const aExtra = a.extra || {};
+                const bExtra = b.extra || {};
+                const aRating = Number(aExtra.tmdb_rating || aExtra.vote_average || 0);
+                const bRating = Number(bExtra.tmdb_rating || bExtra.vote_average || 0);
+                return bRating - aRating;
+            });
+
+        res.json({ success: true, results: results.slice(0, 20).map(({ _score, ...item }) => item) });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Error fetching personalised picks', error: err.message });
+    }
 });
 
 // event tracking route
-app.post('/api/events', (req, res) => {
+app.post('/api/events', async (req, res) => {
     if (!req.session.user) return res.status(401).json({ success: false });
     const { entertainment_id, event_type } = req.body;
     if (!entertainment_id || !['view', 'watchlist_add', 'like'].includes(event_type)) {
         return res.status(400).json({ success: false, message: 'Invalid event' });
     }
-    db.prepare(
-        'INSERT INTO user_events (user_id, entertainment_id, event_type) VALUES (?, ?, ?)'
-    ).run(req.session.user.id, Number(entertainment_id), event_type);
-    res.json({ success: true });
+    try {
+        const nextId = await getNextSequenceValue('user_events');
+        const newEvent = new UserEvent({
+            id: nextId,
+            user_id: req.session.user.id,
+            entertainment_id: Number(entertainment_id),
+            event_type
+        });
+        await newEvent.save();
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to record event' });
+    }
 });
 
 // detail route
-app.get('/api/item/:id', (req, res) => {
-    const item = db.prepare(
-        'SELECT * FROM entertainment WHERE id = ?'
-    ).get(req.params.id);
-
-    if (!item) return res.status(404).json({ error: 'Not found' });
-    res.json(item);
+app.get('/api/item/:id', async (req, res) => {
+    try {
+        const item = await Entertainment.findOne({ id: Number(req.params.id) }).lean();
+        if (!item) return res.status(404).json({ error: 'Not found' });
+        res.json(item);
+    } catch (err) {
+        res.status(500).json({ error: 'Database search error' });
+    }
 });
 
 // start the server
@@ -446,4 +534,3 @@ function startServer(port) {
 }
 
 startServer(DEFAULT_PORT);
-

@@ -1,72 +1,24 @@
-import Database from 'better-sqlite3';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const db = new Database('entertainment.db');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-db.exec(`
-    CREATE TABLE IF NOT EXISTS entertainment (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        type        TEXT NOT NULL,
-        external_id TEXT,
-        title       TEXT NOT NULL,
-        description TEXT,
-        poster_url  TEXT,
-        release_year YEAR,
-        genre       TEXT,
-        extra       TEXT
-    );
+// Load environment variables
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
-    CREATE TABLE IF NOT EXISTS users (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        username   TEXT UNIQUE NOT NULL,
-        email      TEXT UNIQUE NOT NULL,
-        password   TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now'))
-    );
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/streamflix';
 
-    CREATE TABLE IF NOT EXISTS watchlist (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id          INTEGER NOT NULL,
-        entertainment_id INTEGER NOT NULL,
-        added_at         TEXT DEFAULT (datetime('now')),
-        watched          INTEGER DEFAULT 0,
-        UNIQUE (user_id, entertainment_id),
-        FOREIGN KEY (user_id)          REFERENCES users(id),
-        FOREIGN KEY (entertainment_id) REFERENCES entertainment(id)
-    );
+// Connect to MongoDB
+mongoose.connect(MONGODB_URI)
+    .then(() => {
+        console.log(`Connected to MongoDB at ${MONGODB_URI}`);
+    })
+    .catch((err) => {
+        console.error('MongoDB connection error:', err);
+        process.exit(1);
+    });
 
-    CREATE TABLE IF NOT EXISTS reviews (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id          INTEGER NOT NULL,
-        entertainment_id INTEGER NOT NULL,
-        rating           INTEGER CHECK (rating BETWEEN 1 AND 5),
-        comment          TEXT,
-        created_at       TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY (user_id)          REFERENCES users(id),
-        FOREIGN KEY (entertainment_id) REFERENCES entertainment(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS search_history (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id    INTEGER NOT NULL,
-        type       TEXT,
-        keyword    TEXT,
-        searched_at TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS user_events (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id          INTEGER NOT NULL,
-        entertainment_id INTEGER NOT NULL,
-        event_type       TEXT NOT NULL CHECK (event_type IN ('view', 'watchlist_add', 'like')),
-        created_at       TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY (user_id)          REFERENCES users(id),
-        FOREIGN KEY (entertainment_id) REFERENCES entertainment(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_user_events_user  ON user_events(user_id);
-    CREATE INDEX IF NOT EXISTS idx_entertainment_type_genre ON entertainment(type, genre);
-    CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id);
-`);
-
-export default db;
+export default mongoose.connection;

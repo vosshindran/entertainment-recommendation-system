@@ -1,5 +1,6 @@
 // Import modules db connection
-import db from './db.js';
+import dbConnection from './db.js';
+import { Entertainment, Watchlist, getNextSequenceValue } from './models.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -19,35 +20,37 @@ export const TMDB_GENRES = {
 };
 
 // we find through db else we insert a new one
-
-function upsertItems(item){
-    return item.map(item => {
+async function upsertItems(items){
+    const upserted = [];
+    for (const item of items) {
         // Search for existing item with the same external_id and type
-        const existing = db.prepare(
-            'SELECT * FROM entertainment WHERE external_id = ? AND type = ?'
-        ).get(String(item.external_id), String(item.type));
-
+        const existing = await Entertainment.findOne({
+            external_id: String(item.external_id),
+            type: String(item.type)
+        });
 
         if (existing) {
-            // return if found, otherwise insert a new one
-            return existing;
+            upserted.push(existing.toObject());
+            continue;
         }
 
         // insert new one if not found
-        const info = db.prepare(
-            'INSERT INTO entertainment (type, external_id, title, description, poster_url, release_year, genre, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(
-            item.type,
-            String(item.external_id),
-            item.title,
-            item.description,
-            item.poster_url,
-            item.release_year,
-            item.genre,
-            JSON.stringify(item.extra)
-        );
-        return {...item, id: info.lastInsertRowid, extra: JSON.stringify(item.extra)};
-    });
+        const newId = await getNextSequenceValue('entertainment');
+        const newItem = new Entertainment({
+            id: newId,
+            type: item.type,
+            external_id: String(item.external_id),
+            title: item.title,
+            description: item.description,
+            poster_url: item.poster_url,
+            release_year: item.release_year ? Number(item.release_year) : null,
+            genre: item.genre,
+            extra: item.extra || {}
+        });
+        await newItem.save();
+        upserted.push(newItem.toObject());
+    }
+    return upserted;
 }
 
 /**
@@ -116,10 +119,8 @@ function upsertItems(item){
  * - poster_path : image path
  */
 async function getTMDBRecommendations(type, externalID) {
-    // Get the user's search history for the specified genre and type
     const fetch = await import('node-fetch');
     const apiKey = process.env.TMDB_API_KEY;
-    // 'show' is stored in our DB but TMDB endpoint uses 'tv'
     const tmdbType = type === 'show' ? 'tv' : type;
     const url = `https://api.themoviedb.org/3/${tmdbType}/${externalID}/recommendations?api_key=${apiKey}&language=en-US&page=1`;
 
@@ -127,66 +128,27 @@ async function getTMDBRecommendations(type, externalID) {
     const data = await res.json();
 
     const mappedResults = (data.results || []).map(m => ({
-        type: type, // preserve 'show' so it stays consistent with our DB
+        type: type,
         external_id: m.id,
         title: m.title || m.name,
         description: m.overview,
         poster_url: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
         release_year : String(m.release_date || m.first_air_date || '').split('-')[0] || null,
-        genre: m.genre_ids.map(id => TMDB_GENRES[id]).filter(Boolean).join(', ') || null,
+        genre: m.genre_ids ? m.genre_ids.map(id => TMDB_GENRES[id]).filter(Boolean).join(', ') : null,
         extra: {
             tmdb_rating: m.vote_average,
             tmdb_popularity: m.popularity
         }
     }));
-    return upsertItems(mappedResults);
+    return await upsertItems(mappedResults);
 }
-
 
 /**
  * Fetch music recommendations from Last.fm API
- * 
- * API Documentation:
- * Base URL: https://ws.audioscrobbler.com/2.0/
- * Method: track.getSimilar
- * 
- * Endpoint:
- * https://ws.audioscrobbler.com/2.0/?method=track.getSimilar
- *   &artist=Coldplay
- *   &track=Yellow
- *   &api_key=api key
- *   &format=json
- * 
- * Parameters:
- * - artist: Name of the artist
- * - track: Track name
- * - api_key: Last.fm API key
- * - format: json
- * - limit: Number of recommendations
- * 
- * {
- *   "similartracks": {
- *     "track": [
- *       {
- *         "name": "Fix You",
- *         "match": "0.89",
- *         "artist": { "name": "Coldplay" },
- *         "image": [...]
- *       }
- *     ]
- *   }
- * }
- * 
- * Fields Used:
- * - track.name : song title
- * - artist.name : artist name
- * - match : similarity score
- * - image : album artwork
  */
 async function getMusicRecommendations(item) {
     const fetch = (await import('node-fetch')).default;
     const apiKey = process.env.LASTFM_API_KEY;
-    // extra stores { artist, track } — use the real artist/track names, not the combined "Artist - Track" title
     const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
     const artist = extra.artist || item.title;
     const track  = extra.track  || '';
@@ -195,8 +157,6 @@ async function getMusicRecommendations(item) {
     const res  = await fetch(url);
     const data = await res.json();
 
-    // Last.fm deprecated image hosting — images are always empty strings.
-    // Fall back to iTunes Search API (free, no key needed) for album artwork.
     async function getArtwork(trackArtist, trackName) {
         try {
             const q = encodeURIComponent(`${trackArtist} ${trackName}`);
@@ -225,52 +185,11 @@ async function getMusicRecommendations(item) {
             }
         }))
     );
-    return upsertItems(mappedResults);
+    return await upsertItems(mappedResults);
 }
 
 /**
  * Google Books API - Book Search Documentation
- *
- * API Base URL:
- * https://www.googleapis.com/books/v1
- *
- * Endpoint:
- * https://www.googleapis.com/books/v1/volumes
- *
- * Example:
- * /volumes?q=harry+potter
- *
- * Params:
- * - q (string): search query
- * - key (string, optional): API key
- * - startIndex (number): pagination offset
- * - maxResults (number): limit results
- *
- * {
- *   "items": [
- *     {
- *       "id": "abc123",
- *       "volumeInfo": {
- *         "title": "Book Title",
- *         "authors": ["Author Name"],
- *         "publishedDate": "2000-01-01",
- *         "description": "...",
- *         "categories": ["Fiction"],
- *         "imageLinks": {
- *           "thumbnail": "url"
- *         }
- *       }
- *     }
- *   ]
- * }
- *
- * Fields Used:
- * - volumeInfo.title : book title
- * - volumeInfo.authors : author list
- * - volumeInfo.description : summary
- * - volumeInfo.publishedDate : release year
- * - volumeInfo.categories : genre
- * - volumeInfo.imageLinks.thumbnail : cover image
  */
 async function getBookRecommendations(item) {
     const fetch = await import('node-fetch');
@@ -293,16 +212,17 @@ async function getBookRecommendations(item) {
             average_rating: b.volumeInfo.averageRating || null,
         }
     }));
-    return upsertItems(mappedResults);
+    return await upsertItems(mappedResults);
 }
 
 export async function getRecommendations(entertainmentID, userID) {
-    const item = db.prepare('SELECT * FROM entertainment WHERE id = ?').get(entertainmentID);
+    const item = await Entertainment.findOne({ id: Number(entertainmentID) }).lean();
     if (!item) {
         throw new Error('Entertainment item not found');
     }
     
-    const watchlistIDs = db.prepare('SELECT entertainment_id FROM watchlist WHERE user_id = ?').all(userID).map(row => row.entertainment_id);
+    const wList = await Watchlist.find({ user_id: Number(userID) }).select('entertainment_id').lean();
+    const watchlistIDs = wList.map(row => row.entertainment_id);
 
     // Using external APIs
     let recommendations = [];
@@ -322,9 +242,11 @@ export async function getRecommendations(entertainmentID, userID) {
     try{
         if(recommendations.length === 0 && item.genre){
             const genre = item.genre.split(',')[0].trim(); // Get the first genre for simplicity
-            recommendations = db.prepare(
-                'SELECT * FROM entertainment WHERE type = ? AND genre LIKE ? AND id != ?'
-            ).all(item.type, `%${genre}%`, entertainmentID);
+            recommendations = await Entertainment.find({
+                type: item.type,
+                genre: { $regex: genre, $options: 'i' },
+                id: { $ne: Number(entertainmentID) }
+            }).lean();
         }
     } catch (error) {
         console.error('Error fetching local recommendations:', error);
@@ -340,7 +262,7 @@ export async function getRecommendations(entertainmentID, userID) {
         return true;
     });
 
-    // Sort by rating - extra may be a JSON string 
+    // Sort by rating - extra may be a JSON string or object
     filteredRecommendations.sort((a, b) => {
         const aExtra = typeof a.extra === 'string' ? JSON.parse(a.extra || '{}') : (a.extra || {});
         const bExtra = typeof b.extra === 'string' ? JSON.parse(b.extra || '{}') : (b.extra || {});
