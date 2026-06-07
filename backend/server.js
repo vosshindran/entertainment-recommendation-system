@@ -37,21 +37,47 @@ app.use(session({
     cookie: { maxAge: 15 * 60 * 1000 }
 }));
 
-// this is the tmdb proxy
+// ============================
+// TMDB Proxy Route
+// ============================
 app.get('/api/tmdb/*', async (req, res) => {
-    const fetch = (await import('node-fetch')).default;
-    const endpoint = req.params[0];
-    const params = new URLSearchParams(req.query);
-    params.set('api_key', process.env.TMDB_API_KEY);
-    if (!params.has('language')) params.set('language', 'en-US');
     try {
-        const tmdbRes = await fetch(`https://api.themoviedb.org/3/${endpoint}?${params}`);
+        const fetch = (await import('node-fetch')).default;
+
+        const endpoint = req.params[0];
+
+        const params = new URLSearchParams(req.query);
+
+        // Add TMDB API key
+        params.set('api_key', process.env.TMDB_API_KEY);
+
+        // Default language
+        if (!params.has('language')) {
+            params.set('language', 'en-US');
+        }
+
+        const tmdbUrl =
+            `https://api.themoviedb.org/3/${endpoint}?${params.toString()}`;
+
+        console.log('TMDB Request:', tmdbUrl);
+
+        const tmdbRes = await fetch(tmdbUrl);
+
         const data = await tmdbRes.json();
-        res.json(data);
+
+        return res.json(data);
+
     } catch (err) {
-        res.status(502).json({ error: 'TMDB proxy error', detail: err.message });
+        console.error('TMDB proxy error:', err);
+
+        return res.status(500).json({
+            error: 'TMDB proxy failed',
+            detail: err.message
+        });
     }
 });
+
+
 
 // signup route
 app.post('/api/auth/register', async (req, res) => {

@@ -84,7 +84,7 @@ async function runMigration() {
     const sqliteUsers = sqliteDb.prepare('SELECT * FROM users').all();
     const mongoUsers = sqliteUsers.map(user => ({
         id: user.id,
-        username: user.username,
+        username: user.username?.trim() || user.email.split('@')[0],
         email: user.email,
         password: user.password,
         created_at: user.created_at ? new Date(user.created_at) : new Date()
