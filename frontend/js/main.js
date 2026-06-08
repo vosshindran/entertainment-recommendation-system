@@ -42,24 +42,37 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadForYouRow() {
     const section = document.getElementById('for-you-section');
-    const row = document.getElementById('for-you-row');
 
-    const results = await api.getForYouMovies('movie');
+    const rows = await api.getForYouMovies('movie');
 
-    // user x logged in
-    if (results === null) return;
+    // user not logged in
+    if (rows === null) return;
 
     section.style.display = '';
 
-    if (results.length > 0) {
-        document.querySelector('#for-you-section .movie-row-title').textContent = 'You May Like';
-        row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
+    const container = document.getElementById('for-you-rows');
+
+    if (rows.length > 0 && rows[0].results.length > 0) {
+        container.innerHTML = rows.map(({ anchorTitle, results }) => `
+            <div class="movie-row-container mb-5">
+                ${anchorTitle ? `<p class="text-muted small mb-2">Since you added "${anchorTitle}"</p>` : ''}
+                <div class="movie-row">
+                    ${results.map(item => window.createBackendCard(item)).join('')}
+                </div>
+            </div>
+        `).join('');
     } else {
-        // db empty because no searches eyt
+        // Cold start: DB empty, show TMDB trending
         document.querySelector('#for-you-section .movie-row-title').textContent = 'Popular Right Now';
         const trending = await api.getTrendingMovies();
         if (trending && trending.results && trending.results.length > 0) {
-            row.innerHTML = trending.results.map(movie => window.createMovieCard(movie)).join('');
+            container.innerHTML = `
+                <div class="movie-row-container">
+                    <div class="movie-row">
+                        ${trending.results.map(movie => window.createMovieCard(movie)).join('')}
+                    </div>
+                </div>
+            `;
         } else {
             section.style.display = 'none';
         }

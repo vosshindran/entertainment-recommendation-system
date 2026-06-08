@@ -24,9 +24,11 @@ async function loadForYou() {
         const data = await res.json();
         document.getElementById('for-you-loader').classList.add('d-none');
 
-        if (data.success && data.results && data.results.length > 0) {
+        // API now returns rows array; flatten all results for the grid
+        const results = data.success && data.rows ? data.rows.flatMap(r => r.results) : [];
+        if (results.length > 0) {
             document.getElementById('for-you-grid').innerHTML =
-                data.results.map(item => window.createBackendCard(item)).join('');
+                results.map(item => window.createBackendCard(item)).join('');
         } else {
             document.getElementById('for-you-empty').classList.remove('d-none');
         }

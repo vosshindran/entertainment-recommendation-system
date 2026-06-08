@@ -158,6 +158,100 @@ app.get('/api/search', async (req, res) => {
     }
 });
 
+// Upsert TMDB item into local `entertainment
+// Allows the frontend to convert a direct TMDB item into a backend item so
+// server-side features (watchlist, reviews, events, recommendations) can be used.
+app.post('/api/items/upsert_from_tmdb', async (req, res) => {
+    const fetch = (await import('node-fetch')).default;
+    const { type = 'movie', tmdb_id } = req.body || {};
+    if (!tmdb_id) return res.status(400).json({ success: false, message: 'Missing tmdb_id' });
+
+    try {
+        const endpoint = type === 'show' ? `tv/${encodeURIComponent(tmdb_id)}` : `movie/${encodeURIComponent(tmdb_id)}`;
+        const url = `https://api.themoviedb.org/3/${endpoint}?api_key=${process.env.TMDB_API_KEY}&language=en-US`;
+        const tmdbRes = await fetch(url);
+        if (!tmdbRes.ok) return res.status(502).json({ success: false, message: 'TMDB error' });
+        const data = await tmdbRes.json();
+
+        const item = {
+            type,
+            external_id: String(tmdb_id),
+            title: data.title || data.name || 'Untitled',
+            description: data.overview || null,
+            poster_url: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
+            release_year: (data.release_date || data.first_air_date) ? String(new Date(data.release_date || data.first_air_date).getFullYear()) : null,
+            genre: Array.isArray(data.genres) ? data.genres.map(g => g.name).join(', ') : null,
+            extra: {
+                tmdb_rating: data.vote_average || 0,
+                popularity: data.popularity || 0
+            }
+        };
+
+        const existing = db.prepare('SELECT * FROM entertainment WHERE type = ? AND external_id = ?').get(item.type, item.external_id);
+        if (existing) {
+            return res.json({ success: true, id: existing.id, item: existing });
+        }
+
+        const info = db.prepare(`
+            INSERT INTO entertainment (type, external_id, title, description, poster_url, release_year, genre, extra)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(item.type, item.external_id, item.title, item.description, item.poster_url, item.release_year, item.genre, JSON.stringify(item.extra || {}));
+
+        item.id = info.lastInsertRowid;
+        res.json({ success: true, id: item.id, item });
+    } catch (err) {
+        console.error('Upsert TMDB error:', err);
+        res.status(500).json({ success: false, message: 'Failed to upsert TMDB item', error: err.message });
+    }
+});
+
+// Upsert TMDB item into local `entertainment
+// Allows the frontend to convert a direct TMDB item into a backend item so
+// server-side features (watchlist, reviews, events, recommendations) can be used. 
+app.post('/api/items/upsert_from_tmdb', async (req, res) => {
+    const fetch = (await import('node-fetch')).default;
+    const { type = 'movie', tmdb_id } = req.body || {};
+    if (!tmdb_id) return res.status(400).json({ success: false, message: 'Missing tmdb_id' });
+
+    try {
+        const endpoint = type === 'show' ? `tv/${encodeURIComponent(tmdb_id)}` : `movie/${encodeURIComponent(tmdb_id)}`;
+        const url = `https://api.themoviedb.org/3/${endpoint}?api_key=${process.env.TMDB_API_KEY}&language=en-US`;
+        const tmdbRes = await fetch(url);
+        if (!tmdbRes.ok) return res.status(502).json({ success: false, message: 'TMDB error' });
+        const data = await tmdbRes.json();
+
+        const item = {
+            type,
+            external_id: String(tmdb_id),
+            title: data.title || data.name || 'Untitled',
+            description: data.overview || null,
+            poster_url: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
+            release_year: (data.release_date || data.first_air_date) ? String(new Date(data.release_date || data.first_air_date).getFullYear()) : null,
+            genre: Array.isArray(data.genres) ? data.genres.map(g => g.name).join(', ') : null,
+            extra: {
+                tmdb_rating: data.vote_average || 0,
+                popularity: data.popularity || 0
+            }
+        };
+
+        const existing = db.prepare('SELECT * FROM entertainment WHERE type = ? AND external_id = ?').get(item.type, item.external_id);
+        if (existing) {
+            return res.json({ success: true, id: existing.id, item: existing });
+        }
+
+        const info = db.prepare(`
+            INSERT INTO entertainment (type, external_id, title, description, poster_url, release_year, genre, extra)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(item.type, item.external_id, item.title, item.description, item.poster_url, item.release_year, item.genre, JSON.stringify(item.extra || {}));
+
+        item.id = info.lastInsertRowid;
+        res.json({ success: true, id: item.id, item });
+    } catch (err) {
+        console.error('Upsert TMDB error:', err);
+        res.status(500).json({ success: false, message: 'Failed to upsert TMDB item', error: err.message });
+    }
+});
+
 // recommendations route
 app.get('/api/recommend/:id', async (req, res) => {
     if (!req.session.user) return res.status(401).json({ error: 'Not logged in' });
@@ -238,6 +332,36 @@ app.post('/api/reviews', (req, res) => {
         VALUES (?, ?, ?, ?)
     `).run(req.session.user.id, Number(entertainment_id), r, comment ?? null);
     res.json({ success: true, message: 'Review submitted' });
+});
+
+// ----------------- Get current user's reviews ----------------- 
+app.get('/api/my-reviews', (req, res) => {
+    if (!req.session.user) return res.status(401).json({ success: false, message: 'Not logged in' });
+    const userId = req.session.user.id;
+    const rows = db.prepare(`
+        SELECT r.id as review_id, r.rating, r.comment, r.created_at, r.entertainment_id,
+               e.title, e.poster_url, e.type, e.external_id
+        FROM reviews r
+        JOIN entertainment e ON r.entertainment_id = e.id
+        WHERE r.user_id = ?
+        ORDER BY r.created_at DESC
+    `).all(userId);
+    res.json({ success: true, reviews: rows });
+});
+
+//  Get current user's reviews 
+app.get('/api/my-reviews', (req, res) => {
+    if (!req.session.user) return res.status(401).json({ success: false, message: 'Not logged in' });
+    const userId = req.session.user.id;
+    const rows = db.prepare(`
+        SELECT r.id as review_id, r.rating, r.comment, r.created_at, r.entertainment_id,
+               e.title, e.poster_url, e.type, e.external_id
+        FROM reviews r
+        JOIN entertainment e ON r.entertainment_id = e.id
+        WHERE r.user_id = ?
+        ORDER BY r.created_at DESC
+    `).all(userId);
+    res.json({ success: true, reviews: rows });
 });
 
 // api fetcher
@@ -325,83 +449,98 @@ app.get('/api/for-you', (req, res) => {
     const { type } = req.query;
     const userId = req.session.user.id;
 
-    // Build genre preference weights: watchlist=2pts, recent events=1pt each
-    const watchlistGenreRows = db.prepare(`
-        SELECT e.genre FROM watchlist w
-        JOIN entertainment e ON w.entertainment_id = e.id
-        WHERE w.user_id = ? AND e.genre IS NOT NULL AND (? IS NULL OR e.type = ?)
-    `).all(userId, type || null, type || null);
-
-    const eventGenreRows = db.prepare(`
-        SELECT e.genre FROM user_events ue
-        JOIN entertainment e ON ue.entertainment_id = e.id
-        WHERE ue.user_id = ? AND e.genre IS NOT NULL AND (? IS NULL OR e.type = ?)
-        AND ue.created_at > datetime('now', '-30 days')
-    `).all(userId, type || null, type || null);
-
-    const genreWeights = {};
-    for (const { genre } of watchlistGenreRows) {
-        for (const g of genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
-            genreWeights[g] = (genreWeights[g] || 0) + 2;
-        }
-    }
-    for (const { genre } of eventGenreRows) {
-        for (const g of genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
-            genreWeights[g] = (genreWeights[g] || 0) + 1;
-        }
-    }
-
     const watchlistIds = new Set(
         db.prepare('SELECT entertainment_id FROM watchlist WHERE user_id = ?')
           .all(userId).map(r => r.entertainment_id)
     );
 
-    // Pull candidates 
+    // Get last 3 watchlist items as row anchors
+    const anchorItems = db.prepare(`
+        SELECT e.id, e.title, e.genre FROM watchlist w
+        JOIN entertainment e ON w.entertainment_id = e.id
+        WHERE w.user_id = ? AND e.genre IS NOT NULL AND (? IS NULL OR e.type = ?)
+        ORDER BY w.added_at DESC LIMIT 3
+    `).all(userId, type || null, type || null);
+
+    // All candidates from local DB (excluding user's watchlist)
     let candidateQuery = 'SELECT * FROM entertainment WHERE 1=1';
     const candidateParams = [];
     if (type) { candidateQuery += ' AND type = ?'; candidateParams.push(type); }
-    candidateQuery += ' LIMIT 300';
+    candidateQuery += ' LIMIT 500';
     const candidates = db.prepare(candidateQuery).all(...candidateParams);
 
-    const hasPrefs = Object.keys(genreWeights).length > 0;
-    const maxWeight = hasPrefs ? Math.max(...Object.values(genreWeights)) : 1;
+    const currentYear = new Date().getFullYear();
 
-    const scored = candidates
-        .filter(item => !watchlistIds.has(item.id))
-        .map(item => {
-            let genreScore = 0;
-            if (hasPrefs && item.genre) {
-                const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
-                const totalWeight = itemGenres.reduce((sum, g) => sum + (genreWeights[g] || 0), 0);
-                genreScore = Math.min(totalWeight / (maxWeight * 2), 1);
-            }
+    const allPopularities = candidates.map(item => {
+        const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
+        return Number(extra.tmdb_popularity || extra.popularity || 0);
+    }).filter(p => p > 0);
+    const maxPopularity = allPopularities.length > 0 ? Math.max(...allPopularities) : 1;
 
-            // Rating score (0–1)
-            const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
-            const rating = extra.tmdb_rating || extra.vote_average || extra.average_rating || 0;
-            const ratingScore = Math.min(Number(rating) / 10, 1);
+    function scoreForAnchor(anchor, excludeIds) {
+        const anchorGenres = anchor.genre
+            ? anchor.genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+            : [];
 
-            // weighted final score
-            const score = hasPrefs
-                ? genreScore * 0.6 + ratingScore * 0.4
-                : ratingScore;
+        return candidates
+            .filter(item => !watchlistIds.has(item.id) && !excludeIds.has(item.id))
+            .map(item => {
+                // Genre score: how many of this item's genres match the anchor's genres
+                let genreScore = 0;
+                if (anchorGenres.length > 0 && item.genre) {
+                    const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
+                    const matches = itemGenres.filter(g => anchorGenres.includes(g)).length;
+                    genreScore = Math.min(matches / anchorGenres.length, 1);
+                }
 
-            return { ...item, _score: score };
+                const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
+                const rating = extra.tmdb_rating || extra.vote_average || 0;
+                const ratingScore = Math.min(Number(rating) / 10, 1);
+                const pop = Number(extra.tmdb_popularity || extra.popularity || 0);
+                const popularityScore = pop > 0 ? Math.min(Math.log(pop + 1) / Math.log(maxPopularity + 1), 1) : 0;
+                const year = parseInt(item.release_year, 10);
+                const recencyScore = year > 0 ? Math.max(0, Math.min(1, 1 - (currentYear - year) / 50)) : 0;
+
+                const score = genreScore * 0.5 + ratingScore * 0.3 + popularityScore * 0.1 + recencyScore * 0.1;
+                return { ...item, _score: score };
+            })
+            .filter(item => item._score > 0)
+            .sort((a, b) => b._score - a._score)
+            .slice(0, 20)
+            .map(({ _score, ...item }) => item);
+    }
+
+    if (anchorItems.length === 0) {
+        // Cold start: no watchlist — return top-rated by rating+popularity
+        const coldResults = candidates
+            .filter(i => !watchlistIds.has(i.id))
+            .map(item => {
+                const extra = typeof item.extra === 'string' ? JSON.parse(item.extra || '{}') : (item.extra || {});
+                const rating = Number(extra.tmdb_rating || extra.vote_average || 0);
+                const pop = Number(extra.tmdb_popularity || extra.popularity || 0);
+                const popularityScore = pop > 0 ? Math.min(Math.log(pop + 1) / Math.log(maxPopularity + 1), 1) : 0;
+                const year = parseInt(item.release_year, 10);
+                const recencyScore = year > 0 ? Math.max(0, Math.min(1, 1 - (currentYear - year) / 50)) : 0;
+                return { ...item, _score: (rating / 10) * 0.6 + popularityScore * 0.2 + recencyScore * 0.2 };
+            })
+            .sort((a, b) => b._score - a._score)
+            .slice(0, 20)
+            .map(({ _score, ...item }) => item);
+
+        return res.json({ success: true, rows: coldResults.length > 0 ? [{ anchorTitle: null, results: coldResults }] : [] });
+    }
+
+    // Build one row per anchor; each row excludes items already shown in previous rows
+    const shownIds = new Set();
+    const rows = anchorItems
+        .map(anchor => {
+            const results = scoreForAnchor(anchor, shownIds);
+            results.forEach(r => shownIds.add(r.id));
+            return { anchorTitle: anchor.title, results };
         })
-        .filter(item => !hasPrefs || item._score > 0)
-        .sort((a, b) => b._score - a._score);
+        .filter(row => row.results.length > 0);
 
-    // Iif genre filter left nothing, fallback
-    const results = scored.length > 0
-        ? scored
-        : candidates.filter(i => !watchlistIds.has(i.id)).sort((a, b) => {
-            const aExtra = typeof a.extra === 'string' ? JSON.parse(a.extra || '{}') : (a.extra || {});
-            const bExtra = typeof b.extra === 'string' ? JSON.parse(b.extra || '{}') : (b.extra || {});
-            return (Number(bExtra.tmdb_rating || bExtra.vote_average || 0)) -
-                   (Number(aExtra.tmdb_rating || aExtra.vote_average || 0));
-        });
-
-    res.json({ success: true, results: results.slice(0, 20).map(({ _score, ...item }) => item) });
+    res.json({ success: true, rows });
 });
 
 // event tracking route
