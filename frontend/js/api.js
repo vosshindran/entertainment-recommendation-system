@@ -19,10 +19,10 @@ const api = {
     async getForYouMovies(type = 'movie') {
         try {
             const res = await fetch(`/api/for-you?type=${encodeURIComponent(type)}`);
-            if (res.status === 401) return null;
+            if (res.status === 401) return null; // not logged in
             if (!res.ok) throw new Error(`for-you request failed: ${res.status}`);
             const data = await res.json();
-            return data.success ? data.results : [];
+            return data.success ? data.rows : [];
         } catch (error) {
             console.error('getForYouMovies error:', error);
             return [];

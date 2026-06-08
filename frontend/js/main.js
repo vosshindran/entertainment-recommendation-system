@@ -91,10 +91,8 @@ async function loadForYouRow() {
 
         if (!section || !row) return;
 
-        // Get personalized recommendations
         const results = await api.getForYouMovies('movie');
 
-        // User not logged in
         if (results === null) {
             section.style.display = 'none';
             return;
@@ -102,48 +100,26 @@ async function loadForYouRow() {
 
         section.style.display = '';
 
-        // Show recommendations
         if (results.length > 0) {
-            const title = document.querySelector(
-                '#for-you-section .movie-row-title'
-            );
-
-            if (title) {
-                title.textContent = 'You May Like';
-            }
-
-            row.innerHTML = results
-                .map(item => window.createBackendCard(item))
-                .join('');
-        }
-        // Fallback if no search history
-        else {
-            const title = document.querySelector(
-                '#for-you-section .movie-row-title'
-            );
-
-            if (title) {
-                title.textContent = 'Popular Right Now';
-            }
+            const title = document.querySelector('#for-you-section .movie-row-title');
+            if (title) title.textContent = 'You May Like';
+            row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
+        } else {
+            const title = document.querySelector('#for-you-section .movie-row-title');
+            if (title) title.textContent = 'Popular Right Now';
 
             const trending = await api.getTrendingMovies();
-
             if (trending?.results?.length > 0) {
-                row.innerHTML = trending.results
-                    .map(movie => window.createMovieCard(movie))
-                    .join('');
+                row.innerHTML = trending.results.map(movie => window.createMovieCard(movie)).join('');
             } else {
                 section.style.display = 'none';
             }
         }
-
     } catch (error) {
         console.error('For You section failed:', error);
-
         const section = document.getElementById('for-you-section');
-
         if (section) {
             section.style.display = 'none';
         }
     }
-} 
+}
