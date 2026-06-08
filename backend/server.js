@@ -256,9 +256,12 @@ app.get('/api/recommend/:id', async (req, res) => {
     if (!req.session.user) return res.status(401).json({ error: 'Not logged in' });
     try {
         const results = await getRecommendations(req.params.id, req.session.user.id);
-        res.json({ results });
+        res.json(results);
     } catch (err) {
         console.error('Recommendation error:', err);
+        if (err.message === 'Entertainment item not found') {
+            return res.status(404).json({ error: err.message });
+        }
         res.status(500).json({ error: 'Failed to get recommendations' });
     }
 });
@@ -670,4 +673,8 @@ function startServer(port) {
     });
 }
 
-startServer(DEFAULT_PORT);
+if (process.env.NODE_ENV !== 'test') {
+    startServer(DEFAULT_PORT);
+}
+
+export { app };

@@ -5,7 +5,11 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --env-file=.env.test --test tests/unit/recommendation.test.js tests/integration/api.test.js tests/functional/flow.test.js",
+    "test:unit": "node --env-file=.env.test --test tests/unit/recommendation.test.js",
+    "test:integration": "node --env-file=.env.test --test tests/integration/api.test.js",
+    "test:functional": "node --env-file=.env.test --test tests/functional/flow.test.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -15,5 +19,8 @@
     "express-session": "^1.17.3",
     "mongoose": "^9.6.3",
     "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
   }
 }
