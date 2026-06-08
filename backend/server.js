@@ -257,9 +257,12 @@ app.get('/api/recommend/:id', async (req, res) => {
     if (!req.session.user) return res.status(401).json({ error: 'Not logged in' });
     try {
         const results = await getRecommendations(req.params.id, req.session.user.id);
-        res.json({ results });
+        res.json(results);
     } catch (err) {
         console.error('Recommendation error:', err);
+        if (err.message === 'Entertainment item not found') {
+            return res.status(404).json({ error: err.message });
+        }
         res.status(500).json({ error: 'Failed to get recommendations' });
     }
 });
@@ -502,12 +505,12 @@ app.get('/api/for-you', (req, res) => {
                 const recencyScore = year > 0 ? Math.max(0, Math.min(1, 1 - (currentYear - year) / 50)) : 0;
 
                 const score = genreScore * 0.5 + ratingScore * 0.3 + popularityScore * 0.1 + recencyScore * 0.1;
-                return { ...item, _score: score };
+                return { ...item, _genreScore: genreScore, _score: score };
             })
-            .filter(item => item._score > 0)
+            .filter(item => item._genreScore > 0)  // must share at least one genre with anchor
             .sort((a, b) => b._score - a._score)
             .slice(0, 20)
-            .map(({ _score, ...item }) => item);
+            .map(({ _score, _genreScore, ...item }) => item);
     }
 
     if (anchorItems.length === 0) {
@@ -584,5 +587,9 @@ function startServer(port) {
     });
 }
 
-startServer(DEFAULT_PORT);
+if (process.env.NODE_ENV !== 'test') {
+    startServer(DEFAULT_PORT);
+}
+
+export { app };
 

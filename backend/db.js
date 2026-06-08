@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-const db = new Database('entertainment.db');
+const db = new Database(process.env.NODE_ENV === 'test' ? ':memory:' : 'entertainment.db');
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS entertainment (
