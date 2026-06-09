@@ -27,7 +27,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
 app.get('/', (_req, res) => {
-    res.redirect('/pages/home.html');
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
 });
 
 app.use(session({
@@ -117,8 +117,12 @@ app.post('/api/auth/login', async (req, res) => {
 
 // logout route
 app.post('/api/auth/logout', (req, res) => {
-    req.session.destroy();
-    res.json({ success: true, message: 'Logout successful' });
+    req.session.destroy(err => {
+        if (err) {
+            return res.status(500).json({ success: false, message: 'Logout failed' });
+        }
+        res.json({ success: true, message: 'Logout successful' });
+    });
 });
 
 app.get('/api/auth/me', (req, res) => {
