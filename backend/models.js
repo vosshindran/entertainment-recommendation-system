@@ -27,7 +27,7 @@ const userSchema = new mongoose.Schema({
 });
 export const User = mongoose.model('User', userSchema);
 
-// Entertainment Schema (Movies, TV Shows, Books, Music)
+// Entertainment: movies, TV shows, books, music items
 const entertainmentSchema = new mongoose.Schema({
     id: { type: Number, unique: true, required: true },
     type: { type: String, required: true }, // 'movie', 'show', 'book', 'music'

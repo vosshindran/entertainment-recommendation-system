@@ -15,8 +15,7 @@ const api = {
         }
     },
 
-    // Personalised picks derived from the user's watchlist genres and search history.
-    // Requires an active session — returns null if the user is not logged in.
+    // Get personalized recommendations from user activity
     async getForYouMovies(type = 'movie') {
         try {
             const res = await fetch(`/api/for-you?type=${encodeURIComponent(type)}`);

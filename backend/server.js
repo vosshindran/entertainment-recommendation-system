@@ -59,8 +59,6 @@ app.get('/api/tmdb/*', async (req, res) => {
         const tmdbUrl =
             `https://api.themoviedb.org/3/${endpoint}?${params.toString()}`;
 
-        console.log('TMDB Request:', tmdbUrl);
-
         const tmdbRes = await fetch(tmdbUrl);
 
         const data = await tmdbRes.json();
@@ -79,7 +77,7 @@ app.get('/api/tmdb/*', async (req, res) => {
 
 
 
-// signup route
+// Handle user registration
 app.post('/api/auth/register', async (req, res) => {
     const { username, email, password } = req.body;
     try {
@@ -98,7 +96,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// login route
+// Handle user login
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -115,7 +113,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// logout route
+// Terminate user session
 app.post('/api/auth/logout', (req, res) => {
     req.session.destroy(err => {
         if (err) {
@@ -132,7 +130,7 @@ app.get('/api/auth/me', (req, res) => {
     res.json({ success: true, username: req.session.user.username });
 });
 
-// search route
+// Search for entertainment content
 app.get('/api/search', async (req, res) => {
     const { type, q, genre } = req.query;
     if(!type || !q){
@@ -146,7 +144,7 @@ app.get('/api/search', async (req, res) => {
     }
 
     try {
-        // record search history if user is logged in
+        // Save search to history if user is logged in
         if (req.session.user) {
             const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
             const recent = await SearchHistory.findOne({
@@ -167,7 +165,7 @@ app.get('/api/search', async (req, res) => {
             }
         }
 
-        // filter by title keyword or optionally genre
+        // Query entertainment by type and title
         const queryObj = {
             type,
             title: { $regex: q, $options: 'i' }
@@ -183,7 +181,7 @@ app.get('/api/search', async (req, res) => {
             return res.json({ success: true, results: rows, source: 'local_db' });
         }
 
-        // external api
+        // Fetch from external API if no local results
         const apiResults = await fetchFromAPI(type, q);
 
         for (const item of apiResults){
@@ -216,7 +214,7 @@ app.get('/api/search', async (req, res) => {
     }
 });
 
-// recommendations route
+// Get similar recommendations for an item
 app.get('/api/recommend/:id', async (req, res) => {
     if (!req.session.user) return res.status(401).json({ error: 'Not logged in' });
     try {
@@ -228,7 +226,7 @@ app.get('/api/recommend/:id', async (req, res) => {
     }
 });
 
-// watchlist route
+// Fetch user's watchlist
 app.get('/api/watchlist', async (req, res) => {
     if (!req.session.user){
         return res.status(401).json({ success: false, message: 'Not logged in' });
@@ -278,7 +276,7 @@ app.delete('/api/watchlist/:id', async (req, res) => {
     }
 });
 
-// review route
+// Get reviews for an item
 app.get('/api/reviews/:entertainment_id', async (req, res) => {
     const { entertainment_id } = req.params;
     try {
@@ -331,7 +329,7 @@ app.post('/api/reviews', async (req, res) => {
     }
 });
 
-// api fetcher
+// Fetch recommendations from external APIs
 async function fetchFromAPI(type, query){
     const fetch = (await import('node-fetch')).default;
 
@@ -408,7 +406,7 @@ async function fetchFromAPI(type, query){
     return [];
 }
 
-// for-you route
+// Get personalized "For You" recommendations
 app.get('/api/for-you', async (req, res) => {
     if (!req.session.user) {
         return res.status(401).json({ success: false, message: 'Not logged in' });
@@ -480,12 +478,12 @@ app.get('/api/for-you', async (req, res) => {
                     genreScore = Math.min(totalWeight / (maxWeight * 2), 1);
                 }
 
-                // Rating score (0–1)
-                const extraObj = item.extra || {};
+        // Calculate rating score (0–1 scale)
+        const extraObj = item.extra || {};
                 const rating = extraObj.tmdb_rating || extraObj.vote_average || extraObj.average_rating || 0;
                 const ratingScore = Math.min(Number(rating) / 10, 1);
 
-                // weighted final score
+                // Combine genre and rating scores
                 const score = hasPrefs
                     ? genreScore * 0.6 + ratingScore * 0.4
                     : ratingScore;
@@ -495,7 +493,7 @@ app.get('/api/for-you', async (req, res) => {
             .filter(item => !hasPrefs || item._score > 0)
             .sort((a, b) => b._score - a._score);
 
-        // If genre filter left nothing, fallback to rating sort
+        // Use rating-only sorting if no genre preferences
         const results = scored.length > 0
             ? scored
             : candidates.filter(i => !watchlistIdsSet.has(i.id)).sort((a, b) => {
@@ -512,7 +510,7 @@ app.get('/api/for-you', async (req, res) => {
     }
 });
 
-// event tracking route
+// Track user interactions for recommendations
 app.post('/api/events', async (req, res) => {
     if (!req.session.user) return res.status(401).json({ success: false });
     const { entertainment_id, event_type } = req.body;
@@ -534,7 +532,7 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
-// detail route
+// Fetch entertainment item details
 app.get('/api/item/:id', async (req, res) => {
     try {
         const item = await Entertainment.findOne({ id: Number(req.params.id) }).lean();

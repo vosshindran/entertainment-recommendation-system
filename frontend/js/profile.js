@@ -41,8 +41,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const latestMovie = watchlist[watchlist.length - 1];
     const imageUrl = api.getImageUrl(latestMovie.poster_path);
 
-    console.log(latestMovie);
-
     latestMovieContainer.innerHTML = `
     <a href="movie.html?id=${latestMovie.id}" class="text-decoration-none">
       <img 
@@ -84,7 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const topRatedMovie = watchlistMoviesSortedByRating[0];
   const imageUrl = api.getImageUrl(topRatedMovie.poster_path);
 
-  console.log(topRatedMovie);
   topRatedWatchlistMovieContainer.innerHTML = `
     <a href="movie.html?id=${topRatedMovie.id}" class="text-decoration-none">
       <img

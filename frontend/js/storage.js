@@ -1,4 +1,4 @@
-// LocalStorage wrapper
+// Client-side state management using localStorage
 const storage = {
     // Watchlist
     getWatchlist() {

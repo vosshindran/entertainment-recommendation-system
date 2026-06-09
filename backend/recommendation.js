@@ -19,11 +19,11 @@ export const TMDB_GENRES = {
     10765: 'Sci-Fi & Fantasy', 10766: 'Soap', 10767: 'Talk', 10768: 'War & Politics'
 };
 
-// we find through db else we insert a new one
-async function upsertItems(items){
+// Upsert items into the Entertainment collection
+async function upsertItems(items) {
     const upserted = [];
     for (const item of items) {
-        // Search for existing item with the same external_id and type
+        // Search for existing item by external ID and type
         const existing = await Entertainment.findOne({
             external_id: String(item.external_id),
             type: String(item.type)
@@ -34,7 +34,7 @@ async function upsertItems(items){
             continue;
         }
 
-        // insert new one if not found
+        // Create new item if not found in database
         const newId = await getNextSequenceValue('entertainment');
         const newItem = new Entertainment({
             id: newId,
@@ -224,8 +224,8 @@ export async function getRecommendations(entertainmentID, userID) {
     const wList = await Watchlist.find({ user_id: Number(userID) }).select('entertainment_id').lean();
     const watchlistIDs = wList.map(row => row.entertainment_id);
 
-    // Using external APIs
-    let recommendations = [];
+// Try external APIs first; fall back to local database if unavailable
+let recommendations = [];
     try{
         if (item.type === 'movie' || item.type === 'show') {
             recommendations = await getTMDBRecommendations(item.type, item.external_id);
@@ -252,7 +252,7 @@ export async function getRecommendations(entertainmentID, userID) {
         console.error('Error fetching local recommendations:', error);
     }
 
-    // Filter out current item, watchlist items, and duplicates (by id)
+    // Remove duplicates and items already in watchlist
     const seenIds = new Set();
     const filteredRecommendations = recommendations.filter(rec => {
         if (rec.id === parseInt(entertainmentID)) return false;
@@ -262,7 +262,7 @@ export async function getRecommendations(entertainmentID, userID) {
         return true;
     });
 
-    // Sort by rating - extra may be a JSON string or object
+    // Sort by rating (extra can be JSON string or object)
     filteredRecommendations.sort((a, b) => {
         const aExtra = typeof a.extra === 'string' ? JSON.parse(a.extra || '{}') : (a.extra || {});
         const bExtra = typeof b.extra === 'string' ? JSON.parse(b.extra || '{}') : (b.extra || {});
