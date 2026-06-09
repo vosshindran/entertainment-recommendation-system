@@ -1,83 +1,353 @@
 # StreamFlix — Entertainment Recommendation System
-### WIF2003 Web Programming (Phase 2 Submission)
 
-StreamFlix is a responsive client-server web application designed to recommend entertainment content (movies, TV shows, books, and music) using personalized user signals (watchlist, reviews, events) combined with external data engines (TMDB, Last.fm, Google Books). 
+## 1. Project Overview
 
-This version features a **Node.js/Express.js backend** integrated with **MongoDB (via Mongoose)** as the primary database, replacing the original SQLite stack. A complete migration utility is provided to ingest seeded data seamlessly.
+- **Project name:** StreamFlix — Entertainment Recommendation System
+- **Purpose / Objective:** Build a university-level web programming system that recommends entertainment content across movies, TV shows, books, and music by combining user activity signals with external API data.
+- **Short description:**
+  StreamFlix is a client-server application that enables browsing of entertainment content, user authentication, watchlist management, reviews, search, and personalized recommendations. It uses a Node.js + Express backend, MongoDB via Mongoose, and a responsive vanilla JavaScript frontend.
+- **Main target users:**
+  - Students and evaluators reviewing a web programming project.
+  - General entertainment consumers wanting discovery and recommendations.
+  - Registered users who want personalized watchlists and review history.
 
----
+## 2. Tech Stack
 
-## 1. Feature List
+| Layer | Technologies / Packages | Files / Locations |
+|---|---|---|
+| Frontend | HTML5, CSS3, Bootstrap 5.3, Vanilla JavaScript | `frontend/index.html`, `frontend/pages/*.html`, `frontend/js/*.js` |
+| Backend | Node.js, Express.js, express-session, bcrypt, node-fetch | `backend/server.js`, `backend/*` |
+| Database | MongoDB, Mongoose | `backend/db.js`, `backend/models.js` |
+| API Integration | TMDB, Google Books, Last.fm | `backend/recommendation.js`, `frontend/js/api.js` |
+| State Management | Browser `localStorage` | `frontend/js/storage.js` |
 
-- **User Authentication**: Secure signup and signin with password hashing (`bcrypt`) and persistent session management.
-- **Dynamic Content Discovery**: Unified search across multiple categories (Movies, TV Shows, Books, Music) with local caching.
-- **Personalized Recommendations**: 
-  - **"More Like This"**: Recommends items based on the current item's metadata (using TMDB, Last.fm, and Google Books APIs).
-  - **"Recommended For You"**: Hybrid recommendation engine that scores candidates based on weighted genre preferences (Watchlist adds = 2pts, Views/Likes = 1pt each) and popularity/ratings.
-- **Watchlist Manager**: Persist books, movies, music, and tv shows.
-- **Interactive Review System**: Users can rate content (1 to 5 stars) and write comments, stored in MongoDB.
-- **Activity & Search History**: Event tracking to build personalized recommendation profiles.
-- **Dark/Light Mode**: Smooth client-side theme toggling.
+## 3. Complete Feature List
 
----
+| Feature | Description | User Role | Main Files | API Endpoints | Database Models |
+|---|---|---|---|---|---|
+| User Register | Create new account with hashed password | Guest | `frontend/pages/register.html`, `frontend/js/auth.js`, `backend/server.js` | `POST /api/auth/register` | `User` |
+| User Login | Authenticate and create server session | Guest | `frontend/pages/login.html`, `frontend/js/auth.js`, `backend/server.js` | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | `User` |
+| Home Browse | Browse trending/top-rated/action/comedy content | Guest/User | `frontend/index.html`, `frontend/js/main.js`, `frontend/js/api.js` | `GET /api/tmdb/*` | None |
+| Search | Search content by type and keyword | Guest/User | `frontend/pages/search.html`, `frontend/js/search.js` | `GET /api/search` | `Entertainment`, `SearchHistory` |
+| Watchlist | Add/remove backend items to watchlist | User | `frontend/pages/watchlist.html`, `frontend/js/watchlist.js`, `frontend/js/movie.js` | `GET /api/watchlist`, `POST /api/watchlist`, `DELETE /api/watchlist/:id` | `Watchlist` |
+| Item Detail | View item detail and poster | Guest/User | `frontend/pages/movie.html`, `frontend/js/movie.js` | `GET /api/item/:id` | `Entertainment` |
+| Submit Review | Leave rating and comment on backend item | User | `frontend/pages/movie.html`, `frontend/js/movie.js` | `GET /api/reviews/:entertainment_id`, `POST /api/reviews` | `Review` |
+| Personalized Feed | Personalized recommendations for logged-in users | User | `frontend/pages/recommendations.html`, `frontend/js/recommendation.js`, `frontend/js/main.js` | `GET /api/for-you` | `Entertainment`, `Watchlist`, `UserEvent` |
+| Similar Recommendation | "More Like This" recommendations on details page | User | `frontend/js/movie.js`, `backend/recommendation.js` | `GET /api/recommend/:id` | `Entertainment`, `Watchlist`, `UserEvent` |
+| Event Tracking | Record view, watchlist add, like events | User | `frontend/js/movie.js`, `backend/server.js` | `POST /api/events` | `UserEvent` |
+| Theme Toggle | Dark/light mode persisted in browser storage | Guest/User | `frontend/js/app.js`, `frontend/js/storage.js` | None | None |
 
-## 2. Folder Structure Explanation
+**User roles:**
+- Guest: browse home, search, and view pages.
+- Registered user: log in, watchlist, reviews, personalized recommendations.
+- Admin: not implemented.
 
-```text
-entertainment-recommendation-system/
-├── .env.example             # Template for local environment configuration
-├── .env                     # Local active environment variables (Ignored by git)
-├── .gitignore               # Excluded files list
-├── README.md                # Submission & architectural documentation (This file)
-├── database/
-│   └── schema.sql           # Original SQLite schema reference
-├── frontend/                # Client-Side Assets (HTML5, CSS, Vanilla JS, Bootstrap)
-│   ├── css/
-│   │   ├── styles.css       # Core layout styling
-│   │   └── darkmode.css     # Dark mode styling tokens
-│   ├── js/
-│   │   ├── api.js           # Client-side TMDB proxy & recommendation API bindings
-│   │   ├── app.js           # App shell (Theme, shared navigation navbar generator)
-│   │   ├── auth.js          # Client-side user auth state handlers
-│   │   ├── main.js          # Homepage carousel and card bindings
-│   │   ├── movie.js         # Movie details, reviews, watchlist buttons
-│   │   ├── profile.js       # Profile page metrics (watchlist count, review count)
-│   │   ├── recommendation.js# Genre browsing & personalised recommendation layout
-│   │   ├── reviews.js       # User review listings
-│   │   ├── search.js        # Search page render grid
-│   │   └── storage.js       # LocalStorage helper wrapper
-│   ├── pages/               # Semantic HTML pages
-│   │   ├── login.html
-│   │   ├── movie.html
-│   │   ├── profile.html
-│   │   ├── recommendations.html
-│   │   ├── register.html
-│   │   ├── reviews.html
-│   │   ├── search.html
-│   │   └── watchlist.html
-│   └── index.html           # Main application entrance
-└── backend/                 # Server-Side Scripting & Database Layer (Express.js & MongoDB)
-    ├── db.js                # MongoDB Mongoose database connection client
-    ├── models.js            # Mongoose Schemas & Models (User, Watchlist, Review, Counter)
-    ├── migrate.js           # SQLite-to-MongoDB data migration utility
-    ├── recommendation.js    # Recommendation algorithms & TMDB/Last.fm API fetch client
-    ├── server.js            # Express application routing, controllers, and proxy engine
-    ├── package.json         # Node package configuration and server scripts
-    └── entertainment.db     # Original SQLite database file (Used for migration)
+## 4. System Flow
+
+### User flow
+1. User opens the application at `http://localhost:3000`.
+2. The frontend attempts to render the home page with trending and personalized content.
+3. User visits `register.html` to create an account or `login.html` to sign in.
+4. On successful login, the backend session is created and frontend user state is stored in `localStorage`.
+5. The user performs a search on `search.html`, which calls `GET /api/search`.
+6. If logged in, search history is recorded in `SearchHistory` and results may be served from local DB or external APIs.
+7. User opens details on `movie.html` using either a backend item (`backendId`) or TMDB item ID (`id`).
+8. User adds/removes backend watchlist items, calling `/api/watchlist` endpoints.
+9. User submits reviews for backend items via `/api/reviews`.
+10. The app records user events via `/api/events` and uses them when generating `/api/for-you` recommendations.
+
+### Admin flow
+- No admin flow is implemented in this project.
+
+## 5. Backend Architecture
+
+### Core files
+- `backend/server.js` — main Express routes, session setup, search engine, recommendation route handlers.
+- `backend/models.js` — Mongoose schemas and the auto-increment counter helper.
+- `backend/db.js` — MongoDB connection initializer.
+- `backend/recommendation.js` — external API connectors and recommendation helpers.
+- `backend/migrate.js` — migration script from the original SQLite dataset.
+
+### Routes and controllers
+- `GET /api/tmdb/*` — TMDB proxy endpoint.
+- `POST /api/auth/register` — register new users.
+- `POST /api/auth/login` — login with credentials.
+- `POST /api/auth/logout` — logout and destroy session.
+- `GET /api/auth/me` — fetch current user session.
+- `GET /api/search` — search backend local DB and external APIs.
+- `GET /api/recommend/:id` — fetch "more like this" recommendations.
+- `GET /api/watchlist` — fetch user watchlist.
+- `POST /api/watchlist` — add item to watchlist.
+- `DELETE /api/watchlist/:id` — remove item from watchlist.
+- `GET /api/reviews/:entertainment_id` — fetch reviews for an item.
+- `POST /api/reviews` — submit a review.
+- `GET /api/for-you` — personalized recommendations.
+- `POST /api/events` — record user interactions.
+- `GET /api/item/:id` — fetch entertainment details.
+
+### Authentication flow
+- Sessions are established with `express-session` in `backend/server.js`.
+- On login, `req.session.user = { id, username }`.
+- Protected routes check `req.session.user` before performing actions.
+- There is no separate authentication middleware function; checks are done inline.
+
+### Frontend/backend/database communication
+- Frontend pages call backend API endpoints using `fetch()`.
+- Backend reads/writes MongoDB via Mongoose models.
+- External APIs are accessed through backend proxy or fetch helper functions.
+
+## 6. Database Information
+
+### Models and schema fields
+
+#### `User`
+- Fields: `id`, `username`, `email`, `password`, `created_at`
+- Validation: unique `username`, unique `email`, required password.
+- Purpose: store registered user credentials.
+- CRUD: creation via `POST /api/auth/register`; read via login and session validation.
+
+#### `Entertainment`
+- Fields: `id`, `type`, `external_id`, `title`, `description`, `poster_url`, `release_year`, `genre`, `extra`
+- Validation: required `id`, `type`, `title`.
+- Purpose: local cache of entertainment items to avoid repeated external fetches.
+- CRUD: created by search fallback and recommendation ingestion; read in search, item detail, and recommendation routes.
+
+#### `Watchlist`
+- Fields: `id`, `user_id`, `entertainment_id`, `added_at`, `watched`
+- Validation: required `user_id`, `entertainment_id`; unique index on `(user_id, entertainment_id)`.
+- Purpose: store saved items for each user.
+- CRUD: add via `POST /api/watchlist`, read via `GET /api/watchlist`, delete via `DELETE /api/watchlist/:id`.
+
+#### `Review`
+- Fields: `id`, `user_id`, `entertainment_id`, `rating`, `comment`, `created_at`
+- Validation: `rating` must be integer between 1 and 5.
+- Purpose: store user reviews for entertainment.
+- CRUD: add via `POST /api/reviews`, read via `GET /api/reviews/:entertainment_id`.
+
+#### `SearchHistory`
+- Fields: `id`, `user_id`, `type`, `keyword`, `searched_at`
+- Purpose: store user search activity for personalization.
+- CRUD: created in `GET /api/search` for logged-in users.
+
+#### `UserEvent`
+- Fields: `id`, `user_id`, `entertainment_id`, `event_type`, `created_at`
+- Validation: `event_type` must be `view`, `watchlist_add`, or `like`.
+- Purpose: capture user behavior for recommendation scoring.
+- CRUD: created via `POST /api/events`; read in `GET /api/for-you`.
+
+#### `Counter`
+- Fields: `_id`, `seq`
+- Purpose: auto-increment IDs for all other collections.
+- CRUD: incremented by `getNextSequenceValue` in `backend/models.js`.
+
+### CRUD operations in code
+- Create: `register`, `watchlist`, `review`, `event`, `recommendation` ingestion, `search_history`
+- Read: `auth/me`, `item/:id`, `search`, `reviews`, `watchlist`, `for-you`
+- Update: `Counter` sequences and session state.
+- Delete: `DELETE /api/watchlist/:id`
+
+## 7. Testing Support Documentation
+
+### 7.1 Unit Testing Candidates
+
+1. `getNextSequenceValue`
+   - File: `backend/models.js`
+   - Test: verify sequence increments and returns correct next value.
+
+2. Search query builder logic in `/api/search`
+   - File: `backend/server.js`
+   - Test: ensure query object contains type, title regex, and optional genre regex.
+
+3. Password hashing and comparison
+   - File: `backend/server.js`
+   - Test: `bcrypt.hash` / `bcrypt.compare` success for matching password.
+
+4. `fetchFromAPI()` external URL builder
+   - File: `backend/server.js`
+   - Test: verify correct TMDB / Google Books / Last.fm endpoint chosen based on type.
+
+5. `upsertItems()` insertion logic
+   - File: `backend/recommendation.js`
+   - Test: existing `external_id` returns existing item; new item creates a record.
+
+6. Genre scoring formula in `/api/for-you`
+   - File: `backend/server.js`
+   - Test: genre weights vary with watchlist and event data.
+
+7. `localStorage` wrapper functions
+   - File: `frontend/js/storage.js`
+   - Test: add/remove watchlist, add reviews, set theme mode.
+
+8. Navbar render selection
+   - File: `frontend/js/app.js`
+   - Test: logged-in vs guest HTML contains correct links.
+
+9. Review validation on backend
+   - File: `backend/server.js`
+   - Test: invalid rating values return HTTP 400.
+
+10. Movie detail loader selector
+    - File: `frontend/js/movie.js`
+    - Test: loading by `backendId` triggers backend item fetch; loading by `id` triggers TMDB fetch.
+
+### 7.2 Functional Testing Candidates
+
+| Test Case | Feature | Steps | Input | Expected Result |
+|---|---|---|---|---|
+| 1 | Register user | Open register page, fill form, submit | username/email/password | Success response and redirect to homepage/login |
+| 2 | Login user | Open login page, submit credentials | username/password | Session established, navbar shows username |
+| 3 | Search content | Open search page with query and type | `q=matrix`, `type=movie` | Results grid displays items |
+| 4 | Add backend watchlist item | Open backend item detail, click watchlist | `backendId` | Added message and item returned by `/api/watchlist` |
+| 5 | Remove watchlist item | On detail page click remove | backend item id | Item removed and watchlist count updates |
+| 6 | Submit review | In detail page submit rating/comment | rating 4, comment text | Review appears in review list |
+| 7 | Load personalized recommendations | Logged-in user open recommendations page | none | Items displayed or fallback message |
+| 8 | Theme switching | Click theme toggle | toggle button | Dark/light theme changes and persists |
+| 9 | Logout | Click logout | none | Session ends and navbar changes to Sign In |
+| 10 | Invalid search handling | Call search without `q` | missing query | 400 error response |
+| 11 | Event tracking | Open backend detail page | backend item id | `UserEvent` created with `view` |
+| 12 | TMDB proxy | Load homepage or `api.js` call | trending request | Backend proxies TMDB response successfully |
+| 13 | Local review page | After review open `reviews.html` | logged-in user | review appears from localStorage |
+| 14 | Watchlist page display | Open `/pages/watchlist.html` | logged-in user | items from localStorage display |
+| 15 | Item detail load fallback | Open `/pages/movie.html?id=...` | TMDB ID | page displays external movie details |
+
+### 7.3 Integration Testing Candidates
+
+- **Frontend ↔ Backend**
+  - Login form submits to `/api/auth/login`; backend session returns user and frontend sets local state.
+  - Search page calls `/api/search` and renders results in `frontend/js/search.js`.
+  - Watchlist add/remove calls backend endpoints and updates user-specific data.
+
+- **Backend ↔ Database**
+  - `/api/reviews` writes to `Review`; `/api/reviews/:entertainment_id` reads them.
+  - `/api/for-you` reads `Watchlist`, `UserEvent`, and candidate `Entertainment`.
+  - `/api/search` may save `SearchHistory`.
+
+- **API ↔ Authentication**
+  - Protected endpoints enforce `req.session.user` and return 401 for unauthenticated requests.
+
+- **Multi-module workflows**
+  - Search → DB fallback → external API fetch → `Entertainment` insertion → watchlist add → event creation → personalized recommendation generation.
+
+### 7.4 Database Testing Candidates
+
+- Validate `User` creation via registration.
+- Verify `Watchlist` item creation and deletion.
+- Confirm `Review` validations and retrieval.
+- Ensure `SearchHistory` only stores records for logged-in searches.
+- Ensure `UserEvent` only stores valid event types.
+- Confirm `Counter` increments after each insert.
+- Verify `Entertainment` fallback insertion from external APIs.
+
+## 8. Screenshots Checklist
+
+### Unit testing
+- `getNextSequenceValue()` behavior.
+- Search query builder logic.
+- Password hashing and comparison.
+- `storage.js` watchlist add/remove.
+- Navbar render for authenticated/guest state.
+
+### Functional testing
+- Register page success.
+- Login page success.
+- Search results display.
+- Watchlist add/remove.
+- Review submission.
+- Recommendations page.
+- Theme toggle.
+- Logout.
+- Invalid input handling.
+
+### Backend architecture
+- `backend/server.js` route sections.
+- `backend/models.js` schemas.
+- `backend/recommendation.js` external API logic.
+- `backend/migrate.js` migration operations.
+
+### Database operations
+- Collections visible in MongoDB.
+- Exported JSON from `mongoexport`.
+- Created `SearchHistory` and `UserEvent` documents.
+
+### CRUD operations
+- User creation.
+- Watchlist creation.
+- Review creation.
+- Watchlist deletion.
+- Item detail retrieval.
+
+### Error handling
+- `GET /api/search` with missing params.
+- `POST /api/reviews` invalid rating.
+- Unauthenticated `/api/watchlist` access.
+- Root redirect bug evidence.
+
+## 9. Environment Setup
+
+### Installation
+1. Clone repository.
+2. Navigate to root.
+3. Install backend dependencies:
+   ```bash
+   cd backend
+   npm install
+   ```
+4. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+5. Populate `.env`:
+   ```env
+   PORT=3000
+   SESSION_SECRET=your_secret_session_key
+   MONGODB_URI=mongodb://localhost:27017/streamflix
+   TMDB_API_KEY=your_tmdb_api_key_here
+   GOOGLE_BOOKS_API_KEY=your_google_books_api_key_here
+   LASTFM_API_KEY=your_lastfm_api_key_here
+   ```
+
+### Run backend
+```bash
+cd backend
+npm start
 ```
 
+### Run frontend
+- The frontend is served by the backend from `frontend/`.
+- Open `http://localhost:3000/index.html` in a browser.
+
+### Run database
+- Start MongoDB locally.
+- Optional migration from SQLite dataset:
+  ```bash
+  cd backend
+  node migrate.js
+  ```
+
+### Localhost URLs
+- Home: `http://localhost:3000/index.html`
+- Login: `http://localhost:3000/pages/login.html`
+- Register: `http://localhost:3000/pages/register.html`
+- Search: `http://localhost:3000/pages/search.html?q=matrix&type=movie`
+- Profile: `http://localhost:3000/pages/profile.html`
+- Watchlist: `http://localhost:3000/pages/watchlist.html`
+- Recommendations: `http://localhost:3000/pages/recommendations.html`
+
+### Test credentials
+- No default credentials are included. Create accounts through the register page.
+
+## 10. Known Limitations and Missing Implementation
+
+- The root route in `backend/server.js` redirects to `/pages/home.html`, but `frontend/pages/home.html` does not exist. The valid entry page is `frontend/index.html`.
+- No admin dashboard or admin role exists.
+- Profile and reviews pages use browser `localStorage` instead of backend-synced MongoDB state.
+- Local storage watchlist functions are separate from backend watchlist endpoints, causing inconsistent state for TMDB versus backend items.
+- `database/schema.sql` is empty and not used in the current implementation.
+- No automated tests are present in the repository.
+
 ---
 
-## 3. Technology Stack
-
-### Client-Side (Frontend)
-- **HTML5**: Semantic web architecture.
-- **Vanilla CSS3**: Layout, grid layouts, fluid transitions, and glassmorphism templates.
-- **Bootstrap 5.3**: Layout grids, forms, responsive containers, and buttons.
-- **Vanilla JavaScript (ES6+)**: Asynchronous fetch handlers, client-side caching, and dynamic DOM manipulation.
-
-### Server-Side (Backend)
-- **Node.js**: Asynchronous server environment.
+**This README is based exclusively on the actual codebase, dependencies, routes, models, frontend pages, and project structure present in this repository.**
 - **Express.js**: Lightweight REST API builder and static file server.
 - **MongoDB & Mongoose**: Document-oriented NoSQL database and Object Data Modeling (ODM) layer.
 - **Express-Session**: Server-side user session management.
