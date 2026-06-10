@@ -1,36 +1,5 @@
 // Client-side state management using localStorage
 const storage = {
-    // Watchlist
-    getWatchlist() {
-        const list = localStorage.getItem('watchlist');
-        return list ? JSON.parse(list) : [];
-    },
-
-    addToWatchlist(movie) {
-        const list = this.getWatchlist();
-        if (!list.find(m => m.id === movie.id)) {
-            list.push({
-                id: movie.id,
-                title: movie.title,
-                poster_path: movie.poster_path,
-                vote_average: movie.vote_average
-            });
-            localStorage.setItem('watchlist', JSON.stringify(list));
-            return true; // Added
-        }
-        return false; // Already exists
-    },
-
-    removeFromWatchlist(movieId) {
-        let list = this.getWatchlist();
-        list = list.filter(m => m.id != movieId);
-        localStorage.setItem('watchlist', JSON.stringify(list));
-    },
-
-    isInWatchlist(movieId) {
-        return this.getWatchlist().some(m => m.id == movieId);
-    },
-
     // Reviews
     getReviews() {
         const reviews = localStorage.getItem('reviews');

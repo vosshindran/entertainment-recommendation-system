@@ -232,10 +232,12 @@ app.get('/api/watchlist', async (req, res) => {
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
     try {
-        const watchlistItems = await Watchlist.find({ user_id: req.session.user.id }).lean();
+        const watchlistItems = await Watchlist.find({ user_id: req.session.user.id }).sort({ added_at: -1 }).lean();
         const entIds = watchlistItems.map(w => w.entertainment_id);
         const items = await Entertainment.find({ id: { $in: entIds } }).lean();
-        res.json({ success: true, watchlist: items });
+        const itemsById = new Map(items.map(item => [item.id, item]));
+        const orderedItems = entIds.map(id => itemsById.get(id)).filter(Boolean);
+        res.json({ success: true, watchlist: orderedItems });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to get watchlist' });
     }
@@ -246,20 +248,32 @@ app.post('/api/watchlist', async (req, res) => {
         return res.status(401).json({ success: false, message: 'Not logged in' });
     }
     const { entertainment_id } = req.body;
+    if (!entertainment_id || !Number.isInteger(Number(entertainment_id))) {
+        return res.status(400).json({ success: false, message: 'Invalid entertainment_id' });
+    }
     try {
-        const existing = await Watchlist.findOne({ user_id: req.session.user.id, entertainment_id: Number(entertainment_id) });
-        if (!existing) {
-            const nextWatchId = await getNextSequenceValue('watchlist');
-            const newWatch = new Watchlist({
-                id: nextWatchId,
-                user_id: req.session.user.id,
-                entertainment_id: Number(entertainment_id)
-            });
-            await newWatch.save();
+        const entertainmentId = Number(entertainment_id);
+        const entertainmentExists = await Entertainment.exists({ id: entertainmentId });
+        if (!entertainmentExists) {
+            return res.status(404).json({ success: false, message: 'Entertainment item not found' });
         }
+
+        const existing = await Watchlist.findOne({ user_id: req.session.user.id, entertainment_id: entertainmentId });
+        if (existing) {
+            return res.status(409).json({ success: false, message: 'Already in watchlist' });
+        }
+
+        const nextWatchId = await getNextSequenceValue('watchlist');
+        const newWatch = new Watchlist({
+            id: nextWatchId,
+            user_id: req.session.user.id,
+            entertainment_id: entertainmentId
+        });
+        await newWatch.save();
         res.json({ success: true, message: 'Added to watchlist' });
     } catch (err) {
-        res.status(400).json({ success: false, message: 'Already in watchlist or invalid entertainment ID' });
+        console.error('Watchlist add error:', err);
+        res.status(500).json({ success: false, message: 'Failed to add to watchlist' });
     }
 });
 
@@ -532,7 +546,7 @@ app.post('/api/events', async (req, res) => {
     }
 });
 
-// Fetch entertainment item details
+// Fetch entertainment item details by internal ID
 app.get('/api/item/:id', async (req, res) => {
     try {
         const item = await Entertainment.findOne({ id: Number(req.params.id) }).lean();
@@ -540,6 +554,61 @@ app.get('/api/item/:id', async (req, res) => {
         res.json(item);
     } catch (err) {
         res.status(500).json({ error: 'Database search error' });
+    }
+});
+
+// Fetch entertainment item by external provider id
+app.get('/api/item/external/:type/:external_id', async (req, res) => {
+    try {
+        const { type, external_id } = req.params;
+        const item = await Entertainment.findOne({ type, external_id: String(external_id) }).lean();
+        if (!item) return res.status(404).json({ success: false, message: 'Not found' });
+        res.json(item);
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Database search error' });
+    }
+});
+
+// Create a backend entertainment item if it does not exist
+app.post('/api/item', async (req, res) => {
+    const {
+        type,
+        external_id,
+        title,
+        description,
+        poster_url,
+        release_year,
+        genre,
+        extra
+    } = req.body;
+
+    if (!type || !external_id || !title) {
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    try {
+        const existing = await Entertainment.findOne({ type, external_id: String(external_id) }).lean();
+        if (existing) {
+            return res.json(existing);
+        }
+
+        const nextEntId = await getNextSequenceValue('entertainment');
+        const newItem = new Entertainment({
+            id: nextEntId,
+            type,
+            external_id: String(external_id),
+            title,
+            description: description || '',
+            poster_url: poster_url || null,
+            release_year: release_year ? Number(release_year) : null,
+            genre: genre || null,
+            extra: extra || {}
+        });
+        await newItem.save();
+        res.json(newItem.toObject());
+    } catch (err) {
+        console.error('Create entertainment item error:', err);
+        res.status(500).json({ success: false, message: 'Failed to create entertainment item' });
     }
 });
 

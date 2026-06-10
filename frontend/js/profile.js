@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const user = storage.getUser();
   if (!user) {
     window.location.href = 'login.html';
@@ -10,7 +10,23 @@ document.addEventListener('DOMContentLoaded', () => {
     user.loggedInAt,
   ).toLocaleDateString();
 
-  const watchlist = storage.getWatchlist();
+  let watchlist = [];
+  try {
+    const res = await fetch('/api/watchlist');
+    if (!res.ok) {
+      if (res.status === 401) {
+        window.location.href = 'login.html';
+        return;
+      }
+      throw new Error(`Watchlist request failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    watchlist = data.watchlist || [];
+  } catch (error) {
+    console.error('Failed to load watchlist:', error);
+  }
+
   document.getElementById('watchlist-count').textContent = watchlist.length;
 
   const allReviews = storage.getReviews();
@@ -38,11 +54,11 @@ document.addEventListener('DOMContentLoaded', () => {
   );
 
   if (watchlist.length > 0) {
-    const latestMovie = watchlist[watchlist.length - 1];
-    const imageUrl = api.getImageUrl(latestMovie.poster_path);
+    const latestMovie = watchlist[0];
+    const imageUrl = latestMovie.poster_url || api.getImageUrl(latestMovie.poster_path);
 
     latestMovieContainer.innerHTML = `
-    <a href="movie.html?id=${latestMovie.id}" class="text-decoration-none">
+    <a href="movie.html?backendId=${latestMovie.id}" class="text-decoration-none">
       <img 
         src ="${imageUrl}"
         alt = "${latestMovie.title}" 
@@ -50,7 +66,6 @@ document.addEventListener('DOMContentLoaded', () => {
         style="max-width: 160px;"
       >
       <p class="text-white fw-semibold mb-0">${latestMovie.title}</p>
-
     </a>
   `;
   }
@@ -77,20 +92,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const topRatedWatchlistMovieContainer = document.getElementById(
     'top-rated-watchlist-movie-container',
   );
-  const watchlistMoviesSortedByRating = watchlist.map((x) => x);
-  watchlistMoviesSortedByRating.sort((a, b) => b.vote_average - a.vote_average);
-  const topRatedMovie = watchlistMoviesSortedByRating[0];
-  const imageUrl = api.getImageUrl(topRatedMovie.poster_path);
 
-  topRatedWatchlistMovieContainer.innerHTML = `
-    <a href="movie.html?id=${topRatedMovie.id}" class="text-decoration-none">
-      <img
-        src="${imageUrl}"
-        alt="topRatedMovie.title"
-        class="img-fluid rounded mb-2"
-        style="max-width: 160px;"
-      >
-      <p class="text-white fw-semibold mb-0">${topRatedMovie.title}</p>
-    </a>
-  `;
+  if (watchlist.length > 0) {
+    const watchlistMoviesSortedByRating = watchlist.slice();
+    watchlistMoviesSortedByRating.sort((a, b) => {
+      const aRating = Number((a.extra && (a.extra.tmdb_rating || a.extra.vote_average)) || 0);
+      const bRating = Number((b.extra && (b.extra.tmdb_rating || b.extra.vote_average)) || 0);
+      return bRating - aRating;
+    });
+
+    const topRatedMovie = watchlistMoviesSortedByRating[0];
+    const imageUrl = topRatedMovie.poster_url || api.getImageUrl(topRatedMovie.poster_path);
+
+    topRatedWatchlistMovieContainer.innerHTML = `
+      <a href="movie.html?backendId=${topRatedMovie.id}" class="text-decoration-none">
+        <img
+          src="${imageUrl}"
+          alt="${topRatedMovie.title}"
+          class="img-fluid rounded mb-2"
+          style="max-width: 160px;"
+        >
+        <p class="text-white fw-semibold mb-0">${topRatedMovie.title}</p>
+      </a>
+    `;
+  } else {
+    topRatedWatchlistMovieContainer.innerHTML = '<p class="text-muted">No movies added yet.</p>';
+  }
 });

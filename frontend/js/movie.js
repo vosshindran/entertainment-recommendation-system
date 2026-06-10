@@ -1,5 +1,6 @@
 let currentItem = null;
 let currentBackendId = null; // set when loaded via ?backendId=
+let currentTMDBId = null; // set when loaded via ?id=
 
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
@@ -23,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // load our db backend item
 async function loadBackendItem(backendId) {
     currentBackendId = parseInt(backendId, 10);
+    currentTMDBId = null;
 
     const res = await fetch(`/api/item/${backendId}`);
     if (!res.ok) throw new Error('Item not found');
@@ -56,6 +58,8 @@ async function loadTMDBItem(movieId) {
     const movie = await api.getMovieDetails(movieId);
     if (!movie) throw new Error('Could not fetch movie');
     currentItem = movie;
+    currentBackendId = null;
+    currentTMDBId = movieId;
 
     document.getElementById('movie-title').textContent    = movie.title || movie.name;
     document.getElementById('movie-date').textContent     = movie.release_date || 'N/A';
@@ -87,15 +91,32 @@ function trackEvent(entertainmentId, eventType) {
 // watchlist
 async function updateWatchlistButton() {
     const btn = document.getElementById('btn-watchlist');
+    if (!btn) return;
 
-    if (currentBackendId) {
+    if (!window.storage.getUser()) {
+        setWatchlistBtn(btn, false);
+        return;
+    }
+
+    const backendId = await resolveBackendEntertainmentId();
+    if (!backendId) {
+        setWatchlistBtn(btn, false);
+        return;
+    }
+
+    try {
         const res = await fetch('/api/watchlist');
-        if (!res.ok) { btn.style.display = 'none'; return; } // not logged in
+        if (!res.ok) {
+            setWatchlistBtn(btn, false);
+            return;
+        }
+
         const data = await res.json();
-        const inList = (data.watchlist || []).some(i => i.id === currentBackendId);
+        const inList = (data.watchlist || []).some(i => i.id === backendId);
         setWatchlistBtn(btn, inList);
-    } else {
-        setWatchlistBtn(btn, window.storage.isInWatchlist(currentItem.id));
+    } catch (err) {
+        console.error('Watchlist load failed:', err);
+        setWatchlistBtn(btn, false);
     }
 }
 
@@ -106,6 +127,69 @@ function setWatchlistBtn(btn, inList) {
     btn.className  = `btn ${inList ? 'btn-secondary' : 'btn-primary'} me-2`;
 }
 
+async function resolveBackendEntertainmentId() {
+    if (currentBackendId) return currentBackendId;
+    if (!currentTMDBId) return null;
+
+    const item = await fetchBackendItemByExternalId('movie', currentTMDBId);
+
+    if (item && item.id) {
+        currentBackendId = item.id;
+        return currentBackendId;
+    }
+
+    return null;
+}
+
+async function fetchBackendItemByExternalId(type, externalId) {
+    try {
+        const res = await fetch(`/api/item/external/${encodeURIComponent(type)}/${encodeURIComponent(externalId)}`);
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (err) {
+        console.error('Failed to resolve backend item:', err);
+        return null;
+    }
+}
+
+async function ensureBackendItemFromTMDB() {
+    if (currentBackendId) return currentBackendId;
+    if (!currentTMDBId || !currentItem) throw new Error('Missing TMDB movie details');
+
+    const payload = {
+        type: 'movie',
+        external_id: String(currentTMDBId),
+        title: currentItem.title || currentItem.name,
+        description: currentItem.overview || '',
+        poster_url: currentItem.poster_path ? api.getImageUrl(currentItem.poster_path) : null,
+        release_year: currentItem.release_date ? Number(currentItem.release_date.slice(0, 4)) : null,
+        genre: currentItem.genres ? currentItem.genres.map(g => g.name).join(', ') : null,
+        extra: {
+            tmdb_rating: currentItem.vote_average || 0,
+            popularity: currentItem.popularity || 0,
+            release_date: currentItem.release_date || null
+        }
+    };
+
+    const res = await fetch('/api/item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+        throw new Error(data.message || 'Could not create backend item');
+    }
+
+    if (!data.id) {
+        throw new Error('Backend item creation returned invalid data');
+    }
+
+    currentBackendId = data.id;
+    return currentBackendId;
+}
+
 window.toggleWatchlist = async function () {
     const user = window.storage.getUser();
     if (!user) {
@@ -114,27 +198,45 @@ window.toggleWatchlist = async function () {
         return;
     }
 
-    const btn    = document.getElementById('btn-watchlist');
+    const btn = document.getElementById('btn-watchlist');
     const inList = btn.classList.contains('btn-secondary');
 
-    if (currentBackendId) {
-        if (inList) {
-            await fetch(`/api/watchlist/${currentBackendId}`, { method: 'DELETE' });
-        } else {
-            await fetch('/api/watchlist', {
+    try {
+        let backendId = await resolveBackendEntertainmentId();
+        if (!backendId && !inList) {
+            backendId = await ensureBackendItemFromTMDB();
+        }
+
+        if (!backendId) {
+            throw new Error('Unable to resolve watchlist item.');
+        }
+
+        const requestOptions = inList
+            ? { method: 'DELETE' }
+            : {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ entertainment_id: currentBackendId })
-            });
-            trackEvent(currentBackendId, 'watchlist_add');
-        }
-    } else {
-        inList
-            ? window.storage.removeFromWatchlist(currentItem.id)
-            : window.storage.addToWatchlist(currentItem);
-    }
+                body: JSON.stringify({ entertainment_id: backendId })
+            };
 
-    setWatchlistBtn(btn, !inList);
+        const res = await fetch(inList ? `/api/watchlist/${backendId}` : '/api/watchlist', requestOptions);
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            console.error('Watchlist update failed:', data);
+            alert('Unable to update watchlist. Please try again.');
+            return;
+        }
+
+        if (!inList) {
+            trackEvent(backendId, 'watchlist_add');
+        }
+
+        setWatchlistBtn(btn, !inList);
+    } catch (err) {
+        console.error('Watchlist toggle failed:', err);
+        alert('Unable to update watchlist. Please check the console for details.');
+    }
 };
 
 // reviews

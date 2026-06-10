@@ -12,7 +12,7 @@ export async function getNextSequenceValue(sequenceName) {
     const doc = await Counter.findByIdAndUpdate(
         sequenceName,
         { $inc: { seq: 1 } },
-        { new: true, upsert: true }
+        { returnDocument: 'after', upsert: true }
     );
     return doc.seq;
 }
