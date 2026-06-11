@@ -244,11 +244,16 @@ Auto-increment helper for generating numeric IDs.
 2. Reviews are stored in MongoDB and displayed sorted by creation date
 3. Usernames are resolved from the User collection for display
 
-### Personalized Recommendations
-1. System builds genre weights from user's watchlist and recent events (view, watchlist_add)
-2. Candidates are scored based on genre match and rating
-3. Top 20 items (excluding watchlist and current item) are returned
-4. Fallback to rating-only sorting if no genre preferences exist
+### Personalized Recommendations (`/api/for-you`)
+1. System takes the 3 most recent watchlist items that have genre data as "anchors"
+2. For each anchor, candidates in the local DB are scored: genre match (60%) + TMDB rating (40%)
+3. Up to 20 results per anchor row are returned, labelled "Since you added \<movie\>" on the frontend
+4. The first row is skipped on the recommendations page (already shown on the home page)
+5. Cold start (no watchlist): items sorted by rating only; empty DB: TMDB trending fallback
+
+### More Like This (`/api/recommend/:id`)
+1. When a user opens a movie detail page, the app fetches TMDB's recommendations for that movie
+2. Results are upserted into the local MongoDB cache, filtered (removing watchlist items and duplicates), sorted by TMDB rating DESC, and the top 30 are returned
 
 ---
 
