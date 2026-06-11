@@ -494,74 +494,76 @@ app.get('/api/for-you', async (req, res) => {
     const userId = req.session.user.id;
 
     try {
-        // 1. Get user's watchlist item IDs and fetch their genres
-        const watchlistItems = await Watchlist.find({ user_id: userId }).lean();
-        const watchlistEntIds = watchlistItems.map(w => w.entertainment_id);
+        // Get user's watchlist IDs and the 3 most recent anchor items
+        const watchlistItems = await Watchlist.find({ user_id: userId }).sort({ added_at: -1 }).lean();
+        const watchlistIdsSet = new Set(watchlistItems.map(w => w.entertainment_id));
 
-        const watchlistGenreQuery = { id: { $in: watchlistEntIds }, genre: { $ne: null } };
-        if (type) watchlistGenreQuery.type = type;
-        const watchlistGenreDocs = await Entertainment.find(watchlistGenreQuery).select('genre').lean();
-
-        // 2. Get user's recent events in the last 30 days
-        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        const eventItems = await UserEvent.find({ user_id: userId, created_at: { $gt: thirtyDaysAgo } }).lean();
-        const eventEntIds = eventItems.map(e => e.entertainment_id);
-
-        const eventGenreQuery = { id: { $in: eventEntIds }, genre: { $ne: null } };
-        if (type) eventGenreQuery.type = type;
-        const eventGenreDocs = await Entertainment.find(eventGenreQuery).select('genre').lean();
-
-        // 3. Build genre preference weights: watchlist=2pts, recent events=1pt
-        const genreWeights = {};
-        for (const doc of watchlistGenreDocs) {
-            if (doc.genre) {
-                for (const g of doc.genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
-                    genreWeights[g] = (genreWeights[g] || 0) + 2;
-                }
-            }
-        }
-        for (const doc of eventGenreDocs) {
-            if (doc.genre) {
-                for (const g of doc.genre.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
-                    genreWeights[g] = (genreWeights[g] || 0) + 1;
-                }
-            }
-        }
-
-        const watchlistIdsSet = new Set(watchlistEntIds);
         const candidateQuery = type ? { type } : {};
-        const candidates = await Entertainment.find(candidateQuery).limit(300).lean();
+        const candidates = await Entertainment.find(candidateQuery).limit(500).lean();
 
-        const hasPrefs = Object.keys(genreWeights).length > 0;
-        const maxWeight = hasPrefs ? Math.max(...Object.values(genreWeights)) : 1;
+        // Cold start: no watchlist — return top-rated
+        if (watchlistItems.length === 0) {
+            const cold = candidates
+                .sort((a, b) => {
+                    const aR = Number((a.extra || {}).tmdb_rating || 0);
+                    const bR = Number((b.extra || {}).tmdb_rating || 0);
+                    return bR - aR;
+                })
+                .slice(0, 20);
+            return res.json({ success: true, rows: [{ anchorTitle: null, results: cold }] });
+        }
 
-        const scored = candidates
-            .filter(item => !watchlistIdsSet.has(item.id))
-            .map(item => {
-                let genreScore = 0;
-                if (hasPrefs && item.genre) {
-                    const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
-                    const totalWeight = itemGenres.reduce((sum, g) => sum + (genreWeights[g] || 0), 0);
-                    genreScore = Math.min(totalWeight / (maxWeight * 2), 1);
-                }
-                const extraObj = item.extra || {};
-                const rating = extraObj.tmdb_rating || extraObj.vote_average || extraObj.average_rating || 0;
-                const ratingScore = Math.min(Number(rating) / 10, 1);
-                const score = hasPrefs ? genreScore * 0.6 + ratingScore * 0.4 : ratingScore;
-                return { ...item, _score: score };
-            })
-            .filter(item => !hasPrefs || item._score > 0)
-            .sort((a, b) => b._score - a._score);
+        // Get the 3 most recent watchlist anchors that have genre info
+        const anchorEntIds = watchlistItems.slice(0, 10).map(w => w.entertainment_id);
+        const anchorEntQuery = { id: { $in: anchorEntIds }, genre: { $ne: null } };
+        if (type) anchorEntQuery.type = type;
+        const anchorEnts = await Entertainment.find(anchorEntQuery).lean();
+        // Preserve recency order
+        const anchorEntMap = Object.fromEntries(anchorEnts.map(e => [e.id, e]));
+        const anchors = watchlistItems
+            .map(w => anchorEntMap[w.entertainment_id])
+            .filter(Boolean)
+            .slice(0, 3);
 
-        const results = scored.length > 0
-            ? scored
-            : candidates.filter(i => !watchlistIdsSet.has(i.id)).sort((a, b) => {
-                const aRating = Number((a.extra || {}).tmdb_rating || (a.extra || {}).vote_average || 0);
-                const bRating = Number((b.extra || {}).tmdb_rating || (b.extra || {}).vote_average || 0);
-                return bRating - aRating;
-            });
+        if (anchors.length === 0) {
+            return res.json({ success: true, rows: [] });
+        }
 
-        res.json({ success: true, results: results.slice(0, 20).map(({ _score, ...item }) => item) });
+        // Score candidates against each anchor and build one row per anchor
+        const shownIds = new Set(watchlistIdsSet);
+
+        const rows = anchors.map(anchor => {
+            const anchorGenres = anchor.genre
+                .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+            const scored = candidates
+                .filter(item => !shownIds.has(item.id))
+                .map(item => {
+                    let genreScore = 0;
+                    if (item.genre) {
+                        const itemGenres = item.genre.split(',').map(s => s.trim().toLowerCase());
+                        const matches = itemGenres.filter(g => anchorGenres.includes(g)).length;
+                        genreScore = Math.min(matches / anchorGenres.length, 1);
+                    }
+                    const extra = item.extra || {};
+                    const rating = Number(extra.tmdb_rating || extra.vote_average || 0);
+                    const ratingScore = Math.min(rating / 10, 1);
+                    const score = genreScore * 0.6 + ratingScore * 0.4;
+                    return { ...item, _genreScore: genreScore, _score: score };
+                })
+                .filter(item => item._genreScore > 0)
+                .sort((a, b) => b._score - a._score)
+                .slice(0, 20);
+
+            scored.forEach(r => shownIds.add(r.id));
+
+            return {
+                anchorTitle: anchor.title,
+                results: scored.map(({ _score, _genreScore, ...item }) => item)
+            };
+        }).filter(row => row.results.length > 0);
+
+        res.json({ success: true, rows });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Error fetching personalised picks', error: err.message });
     }

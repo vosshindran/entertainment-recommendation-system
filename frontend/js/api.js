@@ -22,7 +22,8 @@ const api = {
             if (res.status === 401) return null; // not logged in
             if (!res.ok) throw new Error(`for-you request failed: ${res.status}`);
             const data = await res.json();
-            return data.success ? data.rows : [];
+            if (!data.success) return [];
+            return data.rows || [];
         } catch (error) {
             console.error('getForYouMovies error:', error);
             return [];

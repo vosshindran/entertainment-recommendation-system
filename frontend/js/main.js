@@ -87,30 +87,40 @@ function renderRow(elementId, data) {
 async function loadForYouRow() {
     try {
         const section = document.getElementById('for-you-section');
-        const row = document.getElementById('for-you-row');
+        const container = document.getElementById('for-you-rows');
 
-        if (!section || !row) return;
+        if (!section || !container) return;
 
-        const results = await api.getForYouMovies('movie');
+        const rows = await api.getForYouMovies('movie');
 
-        if (results === null) {
+        if (rows === null) {
             section.style.display = 'none';
             return;
         }
 
         section.style.display = '';
 
-        if (results.length > 0) {
-            const title = document.querySelector('#for-you-section .movie-row-title');
-            if (title) title.textContent = 'You May Like';
-            row.innerHTML = results.map(item => window.createBackendCard(item)).join('');
+        if (rows.length > 0) {
+            const first = rows[0];
+            container.innerHTML = `
+                <div class="movie-row-container">
+                    <h2 class="movie-row-title">You May Like</h2>
+                    ${first.anchorTitle ? `<p class="movie-row-subtitle">Since you added "${first.anchorTitle}"</p>` : ''}
+                    <div class="movie-row">
+                        ${first.results.map(item => window.createBackendCard(item)).join('')}
+                    </div>
+                </div>`;
         } else {
-            const title = document.querySelector('#for-you-section .movie-row-title');
-            if (title) title.textContent = 'Popular Right Now';
+            container.innerHTML = `
+                <div class="movie-row-container">
+                    <h2 class="movie-row-title">Popular Right Now</h2>
+                    <div class="movie-row" id="for-you-row"></div>
+                </div>`;
 
             const trending = await api.getTrendingMovies();
             if (trending?.results?.length > 0) {
-                row.innerHTML = trending.results.map(movie => window.createMovieCard(movie)).join('');
+                document.getElementById('for-you-row').innerHTML =
+                    trending.results.map(movie => window.createMovieCard(movie)).join('');
             } else {
                 section.style.display = 'none';
             }
@@ -118,8 +128,6 @@ async function loadForYouRow() {
     } catch (error) {
         console.error('For You section failed:', error);
         const section = document.getElementById('for-you-section');
-        if (section) {
-            section.style.display = 'none';
-        }
+        if (section) section.style.display = 'none';
     }
 }

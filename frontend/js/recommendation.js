@@ -1,85 +1,135 @@
 document.addEventListener('DOMContentLoaded', async () => {
-    const user = window.storage.getUser();
-
-    if (user) {
-        await loadForYou();
-    }
-
-    await loadGenreBrowser();
+    const [, tmdbGenres] = await Promise.all([loadForYou(), loadGenreBrowser()]);
+    if (tmdbGenres) buildGenrePills(window._forYouRows || [], tmdbGenres);
 });
 
+// ─── Personalised rows ────────────────────────────────────────────────────────
+
 async function loadForYou() {
-    const section = document.createElement('div');
-    section.className = 'mb-5';
-    section.innerHTML = `
-        <h4 class="mb-3">Recommended For You</h4>
-        <div id="for-you-loader" class="loader"></div>
-        <div id="for-you-grid" class="movie-grid"></div>
-        <p id="for-you-empty" class="text-muted d-none">Search or add to your watchlist to get personalised picks.</p>
-    `;
-    document.querySelector('.container').prepend(section);
+    const loader = document.getElementById('for-you-loader');
+    const rowsEl = document.getElementById('for-you-rows');
+    const guestBox = document.getElementById('guest-box');
 
     try {
         const res = await fetch('/api/for-you?type=movie');
-        const data = await res.json();
-        document.getElementById('for-you-loader').classList.add('d-none');
 
-        // API now returns rows array; flatten all results for the grid
-        const results = data.success && data.rows ? data.rows.flatMap(r => r.results) : [];
-        if (results.length > 0) {
-            document.getElementById('for-you-grid').innerHTML =
-                results.map(item => window.createBackendCard(item)).join('');
-        } else {
-            document.getElementById('for-you-empty').classList.remove('d-none');
+        loader.classList.add('d-none');
+
+        if (res.status === 401) {
+            guestBox.classList.remove('d-none');
+            return;
         }
+
+        const data = await res.json();
+        const rows = (data.success && data.rows ? data.rows : [])
+            .filter(row => row.results && row.results.length > 0);
+
+        if (rows.length === 0) {
+            guestBox.classList.remove('d-none');
+            document.getElementById('rec-subtitle').textContent =
+                'Search for movies or open a movie page to get started';
+            return;
+        }
+
+        rowsEl.innerHTML = rows.map(({ anchorTitle, results }) => `
+            <div class="movie-row-container">
+                ${anchorTitle ? `<p class="movie-row-subtitle">Since you added "${anchorTitle}"</p>` : ''}
+                <div class="movie-row">
+                    ${results.map(item => window.createBackendCard(item)).join('')}
+                </div>
+            </div>
+        `).join('');
+
+        window._forYouRows = rows;
+
     } catch (err) {
         console.error(err);
-        document.getElementById('for-you-loader').classList.add('d-none');
-        document.getElementById('for-you-empty').classList.remove('d-none');
+        loader.classList.add('d-none');
+        guestBox.classList.remove('d-none');
     }
 }
+
+// ─── Your Genres pills ────────────────────────────────────────────────────────
+
+function buildGenrePills(rows, tmdbGenres) {
+    // Genres from the user's for-you results (personalised, shown first)
+    const counts = {};
+    rows.forEach(({ results }) => {
+        results.forEach(item => {
+            if (!item.genre) return;
+            item.genre.split(',').forEach(g => {
+                const name = g.trim();
+                if (name) counts[name] = (counts[name] || 0) + 1;
+            });
+        });
+    });
+
+    const userGenres = Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name]) => name);
+
+    // All TMDB genres as a fallback pool
+    const allTmdbNames = (tmdbGenres || []).map(g => g.name);
+
+    // Merge: user genres first, then remaining TMDB genres not already listed
+    const userSet = new Set(userGenres);
+    const merged = [...userGenres, ...allTmdbNames.filter(n => !userSet.has(n))];
+
+    if (merged.length === 0) return;
+
+    const section = document.getElementById('genre-section');
+    const pillsEl = document.getElementById('genre-pills');
+
+    pillsEl.innerHTML = merged.map(name => `
+        <button class="genre-pill" onclick="filterExploreByName('${name}', this)">${name}</button>
+    `).join('');
+
+    section.classList.remove('d-none');
+}
+
+// ─── Explore / genre browser ──────────────────────────────────────────────────
+
+let genreMap = {};
 
 async function loadGenreBrowser() {
-    try {
-        const data = await api.getGenres();
-        const container = document.getElementById('genres-container');
+    const data = await api.getGenres();
+    if (!data?.genres) return null;
 
-        if (data && data.genres) {
-            container.innerHTML = data.genres.map(g => `
-                <button class="btn btn-outline-primary genre-btn" onclick="loadGenre(${g.id}, '${g.name}')">
-                    ${g.name}
-                </button>
-            `).join('');
+    data.genres.forEach(g => { genreMap[g.id] = g.name; });
 
-            if (data.genres.length > 0) {
-                loadGenre(data.genres[0].id, data.genres[0].name);
-            }
-        } else {
-            container.innerHTML = '<p class="text-danger">Failed to load genres.</p>';
-        }
-    } catch (error) {
-        console.error(error);
+    if (data.genres.length > 0) {
+        loadExploreGenre(data.genres[0].id, data.genres[0].name);
     }
+
+    return data.genres;
 }
 
-window.loadGenre = async function(genreId, genreName) {
-    document.getElementById('movies-grid').innerHTML = '';
-    document.getElementById('loader').classList.remove('d-none');
+window.filterExploreByName = function(name, pillEl) {
+    document.querySelectorAll('.genre-pill').forEach(p => p.classList.remove('active'));
+    pillEl.classList.add('active');
 
-    const titleEl = document.getElementById('current-genre-title');
-    titleEl.classList.remove('d-none');
-    titleEl.querySelector('span').textContent = genreName;
+    const match = Object.entries(genreMap).find(([, n]) => n === name);
+    if (match) loadExploreGenre(Number(match[0]), name);
+};
+
+async function loadExploreGenre(genreId, genreName) {
+    const loader = document.getElementById('explore-loader');
+    const grid = document.getElementById('explore-grid');
+    const label = document.getElementById('explore-genre-label');
+
+    label.textContent = genreName;
+    grid.innerHTML = '';
+    loader.classList.remove('d-none');
 
     try {
         const data = await api.getMoviesByGenre(genreId);
-        document.getElementById('loader').classList.add('d-none');
+        loader.classList.add('d-none');
 
-        if (data && data.results) {
-            const grid = document.getElementById('movies-grid');
+        if (data?.results?.length > 0) {
             grid.innerHTML = data.results.map(movie => window.createMovieCard(movie)).join('');
         }
-    } catch (error) {
-        console.error(error);
-        document.getElementById('loader').classList.add('d-none');
+    } catch (err) {
+        console.error(err);
+        loader.classList.add('d-none');
     }
-};
+}

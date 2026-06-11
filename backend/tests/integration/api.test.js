@@ -1,16 +1,16 @@
 /**
  * Integration Tests — API Routes
  *
- * Tests HTTP endpoints directly using supertest.
- * Uses an in-memory SQLite database — no real DB file is touched.
- * Each test group registers and logs in its own user to keep state isolated.
+ * Tests HTTP endpoints directly using supertest against a dedicated test
+ * MongoDB database. Each test group registers its own user for isolation.
  */
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import supertest from 'supertest';
+import mongoose from 'mongoose';
 import { app } from '../../server.js';
-import db from '../../db.js';
+import { Entertainment, User, Watchlist, Review, UserEvent, SearchHistory, Counter, getNextSequenceValue } from '../../models.js';
 
 const request = supertest(app);
 
@@ -24,22 +24,48 @@ async function registerAndLogin(username) {
     return cookie;
 }
 
-function insertMovie({ title, genre, external_id = null, rating = 7.0, popularity = 100, release_year = '2020' }) {
-    const info = db.prepare(
-        'INSERT INTO entertainment (type, external_id, title, description, poster_url, release_year, genre, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run('movie', external_id, title, null, null, release_year, genre,
-        JSON.stringify({ tmdb_rating: rating, tmdb_popularity: popularity }));
-    return info.lastInsertRowid;
+async function insertMovie({ title, genre, external_id, rating = 7.0, popularity = 100, release_year = '2020' }) {
+    const id = await getNextSequenceValue('entertainment');
+    const item = new Entertainment({
+        id,
+        type: 'movie',
+        external_id: external_id || `i_ext_${id}`,
+        title,
+        description: null,
+        poster_url: null,
+        release_year: parseInt(release_year),
+        genre,
+        extra: { tmdb_rating: rating, tmdb_popularity: popularity }
+    });
+    await item.save();
+    return id;
+}
+
+async function clearCollections() {
+    await Entertainment.deleteMany({});
+    await User.deleteMany({});
+    await Watchlist.deleteMany({});
+    await Review.deleteMany({});
+    await UserEvent.deleteMany({});
+    await SearchHistory.deleteMany({});
+    await Counter.deleteMany({});
 }
 
 // ─── Setup / Teardown ────────────────────────────────────────────────────────
 
-before(() => {
-    db.exec('DELETE FROM user_events; DELETE FROM watchlist; DELETE FROM reviews; DELETE FROM search_history; DELETE FROM entertainment; DELETE FROM users;');
+before(async () => {
+    if (mongoose.connection.readyState !== 1) {
+        await new Promise((resolve, reject) => {
+            mongoose.connection.once('open', resolve);
+            mongoose.connection.once('error', reject);
+        });
+    }
+    await clearCollections();
 });
 
-after(() => {
-    db.exec('DELETE FROM user_events; DELETE FROM watchlist; DELETE FROM reviews; DELETE FROM search_history; DELETE FROM entertainment; DELETE FROM users;');
+after(async () => {
+    await clearCollections();
+    await mongoose.disconnect();
 });
 
 // ─── /api/for-you ────────────────────────────────────────────────────────────
@@ -51,7 +77,7 @@ describe('GET /api/for-you', () => {
         assert.equal(res.body.success, false);
     });
 
-    test('returns success with empty rows when watchlist is empty', async () => {
+    test('returns success with empty results when DB has no movies', async () => {
         const cookie = await registerAndLogin('integration_user_1');
         const res = await request
             .get('/api/for-you?type=movie')
@@ -60,18 +86,15 @@ describe('GET /api/for-you', () => {
         assert.equal(res.status, 200);
         assert.equal(res.body.success, true);
         assert.ok(Array.isArray(res.body.rows), 'rows should be an array');
-        assert.equal(res.body.rows.length, 0, 'no watchlist = no rows');
     });
 
-    test('returns rows with anchorTitle when user has watchlist items', async () => {
+    test('returns results when user has watchlist items', async () => {
         const cookie = await registerAndLogin('integration_user_2');
 
-        // Seed movies
-        const movieId = insertMovie({ title: 'Interstellar', genre: 'Sci-Fi, Drama', external_id: 'ext_int_1' });
-        insertMovie({ title: 'The Martian', genre: 'Sci-Fi', external_id: 'ext_int_2' });
-        insertMovie({ title: 'Gravity', genre: 'Sci-Fi', external_id: 'ext_int_3' });
+        const movieId = await insertMovie({ title: 'Interstellar', genre: 'Sci-Fi, Drama', external_id: 'i_int_1' });
+        await insertMovie({ title: 'The Martian', genre: 'Sci-Fi', external_id: 'i_int_2' });
+        await insertMovie({ title: 'Gravity', genre: 'Sci-Fi', external_id: 'i_int_3' });
 
-        // Add anchor to watchlist
         await request
             .post('/api/watchlist')
             .set('Cookie', cookie)
@@ -83,26 +106,42 @@ describe('GET /api/for-you', () => {
 
         assert.equal(res.status, 200);
         assert.equal(res.body.success, true);
-        assert.ok(res.body.rows.length > 0, 'should return at least one row');
-        assert.equal(res.body.rows[0].anchorTitle, 'Interstellar');
-        assert.ok(Array.isArray(res.body.rows[0].results), 'each row should have results array');
+        assert.ok(Array.isArray(res.body.rows), 'rows should be an array');
+        const allResults = res.body.rows.flatMap(r => r.results);
+        assert.ok(allResults.length > 0, 'should return at least one result');
     });
 
     test('excludes watchlisted items from results', async () => {
         const cookie = await registerAndLogin('integration_user_3');
 
-        const anchorId = insertMovie({ title: 'Action Base', genre: 'Action', external_id: 'ext_ab' });
-        const watchlistedId = insertMovie({ title: 'Action Sequel', genre: 'Action', external_id: 'ext_as' });
-        insertMovie({ title: 'Action Three', genre: 'Action', external_id: 'ext_a3' });
+        const anchorId = await insertMovie({ title: 'Action Base', genre: 'Action', external_id: 'i_ab' });
+        const watchlistedId = await insertMovie({ title: 'Action Sequel', genre: 'Action', external_id: 'i_as' });
+        await insertMovie({ title: 'Action Three', genre: 'Action', external_id: 'i_a3' });
 
         await request.post('/api/watchlist').set('Cookie', cookie).send({ entertainment_id: anchorId });
         await request.post('/api/watchlist').set('Cookie', cookie).send({ entertainment_id: watchlistedId });
 
         const res = await request.get('/api/for-you?type=movie').set('Cookie', cookie);
 
-        const allResultIds = res.body.rows.flatMap(r => r.results.map(m => m.id));
-        assert.ok(!allResultIds.includes(anchorId), 'anchor item should not appear in results');
-        assert.ok(!allResultIds.includes(watchlistedId), 'watchlisted item should not appear in results');
+        const resultIds = res.body.rows.flatMap(r => r.results).map(m => m.id);
+        assert.ok(!resultIds.includes(anchorId), 'anchor item should not appear in results');
+        assert.ok(!resultIds.includes(watchlistedId), 'watchlisted item should not appear in results');
+    });
+
+    test('returns at most 20 results per row', async () => {
+        const cookie = await registerAndLogin('integration_user_4');
+
+        const anchorId = await insertMovie({ title: 'Fantasy Anchor', genre: 'Fantasy', external_id: 'i_fan_a' });
+        for (let i = 0; i < 25; i++) {
+            await insertMovie({ title: `Fantasy ${i}`, genre: 'Fantasy', external_id: `i_fan_${i}` });
+        }
+
+        await request.post('/api/watchlist').set('Cookie', cookie).send({ entertainment_id: anchorId });
+
+        const res = await request.get('/api/for-you?type=movie').set('Cookie', cookie);
+        for (const row of res.body.rows) {
+            assert.ok(row.results.length <= 20, `expected ≤20 results per row, got ${row.results.length}`);
+        }
     });
 });
 
@@ -115,7 +154,7 @@ describe('GET /api/recommend/:id', () => {
     });
 
     test('returns 404 for non-existent item', async () => {
-        const cookie = await registerAndLogin('integration_user_4');
+        const cookie = await registerAndLogin('integration_user_5');
         const res = await request
             .get('/api/recommend/99999')
             .set('Cookie', cookie);
@@ -123,9 +162,9 @@ describe('GET /api/recommend/:id', () => {
     });
 
     test('returns recommendations array for a valid item', async () => {
-        const cookie = await registerAndLogin('integration_user_5');
-        const movieId = insertMovie({ title: 'Comedy King', genre: 'Comedy', external_id: 'ext_ck' });
-        insertMovie({ title: 'Comedy Two', genre: 'Comedy', external_id: 'ext_c2' });
+        const cookie = await registerAndLogin('integration_user_6');
+        const movieId = await insertMovie({ title: 'Comedy King', genre: 'Comedy', external_id: 'i_ck' });
+        await insertMovie({ title: 'Comedy Two', genre: 'Comedy', external_id: 'i_c2' });
 
         const res = await request
             .get(`/api/recommend/${movieId}`)
@@ -133,7 +172,6 @@ describe('GET /api/recommend/:id', () => {
 
         assert.equal(res.status, 200);
         assert.ok(Array.isArray(res.body), 'should return an array');
-        // No item should be the source movie itself
         assert.ok(!res.body.find(r => r.id === movieId), 'source movie should not appear in recommendations');
     });
 });
@@ -147,8 +185,8 @@ describe('POST /api/events', () => {
     });
 
     test('records a valid event', async () => {
-        const cookie = await registerAndLogin('integration_user_6');
-        const movieId = insertMovie({ title: 'Event Movie', genre: 'Drama', external_id: 'ext_ev' });
+        const cookie = await registerAndLogin('integration_user_7');
+        const movieId = await insertMovie({ title: 'Event Movie', genre: 'Drama', external_id: 'i_ev' });
 
         const res = await request
             .post('/api/events')
@@ -160,8 +198,8 @@ describe('POST /api/events', () => {
     });
 
     test('rejects invalid event_type', async () => {
-        const cookie = await registerAndLogin('integration_user_7');
-        const movieId = insertMovie({ title: 'Event Movie 2', genre: 'Drama', external_id: 'ext_ev2' });
+        const cookie = await registerAndLogin('integration_user_8');
+        const movieId = await insertMovie({ title: 'Event Movie 2', genre: 'Drama', external_id: 'i_ev2' });
 
         const res = await request
             .post('/api/events')

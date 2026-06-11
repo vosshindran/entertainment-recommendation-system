@@ -150,6 +150,13 @@ h1, h2, h3, h4, h5, h6 {
   margin-bottom: 15px;
 }
 
+.movie-row-subtitle {
+  font-size: 1rem;
+  color: #aaa;
+  margin-top: -10px;
+  margin-bottom: 12px;
+}
+
 .movie-row {
   display: flex;
   overflow-x: auto;
@@ -258,6 +265,12 @@ h1, h2, h3, h4, h5, h6 {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 20px;
+}
+
+.for-you-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 15px;
 }
 
 /* Animations */
