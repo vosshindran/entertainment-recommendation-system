@@ -22,7 +22,8 @@ async function loadForYou() {
 
         const data = await res.json();
         const rows = (data.success && data.rows ? data.rows : [])
-            .filter(row => row.results && row.results.length > 0);
+            .filter(row => row.results && row.results.length > 0)
+            .slice(1); // skip first anchor — already shown on homepage
 
         if (rows.length === 0) {
             guestBox.classList.remove('d-none');
